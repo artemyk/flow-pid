@@ -105,6 +105,7 @@ class GaussianPCA(BaseDistribution):
         Sig = torch.matmul(self.W.T, self.W) + torch.exp(
             self.log_sigma * 2
         ) * torch.eye(self.dim, dtype=self.loc.dtype, device=self.loc.device)
+
         log_p = (
             self.dim / 2 * np.log(2 * np.pi)
             - 0.5 * torch.det(Sig)
@@ -127,8 +128,14 @@ class GaussianPCA(BaseDistribution):
 
         return log_p
 
-    def get_W(self, detach=True):
+    def get_H(self, detach=True):
         return self.W.T.detach() if detach else self.W.T
+
+    def get_covariance(self, detach=True):
+        cov = torch.matmul(self.W.T, self.W) + torch.exp(
+            self.log_sigma * 2
+        ) * torch.eye(self.dim, dtype=self.loc.dtype, device=self.loc.device)
+        return cov.detach() if detach else cov
 
 
 def poisson_dist(lamda, x):

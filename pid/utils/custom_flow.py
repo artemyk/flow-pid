@@ -37,15 +37,21 @@ class CartesianProductFlow(nn.Module):
     def get_covariance(self):
         return self.L @ self.L.T
         
-    def forward(self, m,x,y):
-        # print(self.model_x.forward(x))
-        z_x = self.model_x.forward(x)
-        log_det_x = self.model_x.forward_kld(x)
-        z_y = self.model_y.forward(y)
-        log_det_y = self.model_y.forward_kld(y)
-        z_m = self.model_m.forward(m)
-        log_det_m = self.model_m.forward_kld(m)
-        # print(log_det_x, log_det_y, log_det_m)
+    def forward(self, m, x, y):
+        # z_x = self.model_x.forward(x)
+        # log_det_x = self.model_x.forward_kld(x)
+        # z_y = self.model_y.forward(y)
+        # log_det_y = self.model_y.forward_kld(y)
+        # z_m = self.model_m.forward(m)
+        # log_det_m = self.model_m.forward_kld(m)
+
+        ### This is what I think to compute the forward pass
+        ### Reference of normflows package: https://github.com/VincentStimper/normalizing-flows/blob/master/normflows/core.py
+
+        z_x, log_det_x = self.model_x.inverse_and_log_det(x)
+        z_y, log_det_y = self.model_y.inverse_and_log_det(y)
+        z_m, log_det_m = self.model_m.inverse_and_log_det(m)
+
         return z_m, z_x, z_y, log_det_x + log_det_y + log_det_m
     
     def compute_loss(self, z_m, z_x, z_y, log_det):
