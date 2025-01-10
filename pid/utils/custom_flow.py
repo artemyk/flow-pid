@@ -5,6 +5,9 @@ import normflows as nf
 class CartesianProductFlow(nn.Module):
     def __init__(self, dim_m, dim_x, dim_y, n_flows=3):
         super().__init__()
+        self.dim_m = dim_m
+        self.dim_x = dim_x
+        self.dim_y = dim_y
         self.dim_total = dim_m + dim_x + dim_y
         
         # Create base distribution
@@ -32,7 +35,7 @@ class CartesianProductFlow(nn.Module):
 
         # Learnable parameters for target Gaussian of joint distribution
         self.mean = nn.Parameter(torch.zeros(self.dim_total))
-        self.L = nn.Parameter(torch.eye(self.dim_total) * 0.1)  # Initialize with a small value
+        self.L = nn.Parameter(torch.eye(self.dim_total) * 0.25)  # Initialize with a small value
         
     def get_covariance(self):
         return self.L @ self.L.T
@@ -56,9 +59,26 @@ class CartesianProductFlow(nn.Module):
     
     def compute_loss(self, z_m, z_x, z_y, log_det):
         z_combined = torch.cat([z_m, z_x, z_y], dim=-1)
-        target = torch.distributions.MultivariateNormal(
-            loc=self.mean,
-            covariance_matrix=self.get_covariance()
+
+        z_mx = torch.cat([z_m, z_x], dim=-1)
+        z_my = torch.cat([z_m, z_y], dim=-1)
+
+        mean_mx = self.mean[:self.dim_m+self.dim_x]
+        mean_my = torch.cat([self.mean[:self.dim_m], self.mean[-self.dim_y:]], dim=0)
+        cov_mx = self.L[:self.dim_m+self.dim_x] @ self.L[:self.dim_m+self.dim_x].T
+        L_my = torch.cat([self.L[:self.dim_m], self.L[-self.dim_y:]], dim=0)
+        cov_my =  L_my @ L_my.T
+        
+        target_mx = torch.distributions.MultivariateNormal(
+            loc = mean_mx,
+            covariance_matrix=cov_mx
         )
-        log_prob = target.log_prob(z_combined)
+        target_my = torch.distributions.MultivariateNormal(
+            loc=mean_my,
+            covariance_matrix=cov_my
+        )
+
+        # log_prob = target.log_prob(z_combined)
+        log_prob = target_mx.log_prob(z_mx) + target_my.log_prob(z_my)
+        
         return -(log_prob + log_det).mean()
