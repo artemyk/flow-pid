@@ -6,3 +6,4 @@ from . import (
 from .thin_pid import thinpid_exact_pid_minimizer, exact_gauss_thin_pid
 from .tilde_pid import exact_tilde_union_info_minimizer, exact_gauss_tilde_pid
 from .mmi_pid import mmi_pid
+from .flow_pid import flow_pid, train_flow
