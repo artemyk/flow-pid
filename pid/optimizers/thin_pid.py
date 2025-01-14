@@ -8,7 +8,7 @@ import numpy as np
 import scipy.linalg as la
 import numpy.linalg as npla
 
-from ..utils import whiten
+from ..utils import whiten, robust_whiten
 
 
 # Suppress the specific warning: linAlgWarning: Ill-conditioned matrix since we can just resolve it or approximate it
@@ -19,6 +19,14 @@ def objective(sig, G):  # the objective function
     sig_all = np.block([[np.eye(dx), sig],
                         [sig.T, np.eye(dy)]])
     obj = 0.5 / np.log(2) * (npla.slogdet(G + sig_all)[1] - npla.slogdet(sig_all)[1])
+    return obj
+
+def compute_union_info(sig, hx, hy, dm, dx, dy, reg):
+    S = (1 + reg) * np.eye(dx) - sig @ sig.T
+    B = hx - sig @ hy
+    obj = 0.5 / np.log(2) * npla.slogdet(
+        np.eye(dm) + hy.T @ hy + B.T @ la.solve(S, B)
+    )[1]
     return obj
 
 
@@ -192,14 +200,15 @@ def exact_gauss_thin_pid(cov, dm, dx, dy, verbose=False, ret_t_sigt=False,
     debias_factor = imxy_debiased / imxy
 
     #sig = exact_tilde_union_info_minimizer(hx, hy, plot=plot)
-    sig, obj, _ = thinpid_exact_pid_minimizer(hx, hy, plot=plot, ret_obj=True, reg=reg)
-    covxy__m = np.block([[np.eye(dx), sig], [sig.T, np.eye(dy)]])
+
+    sig, obj, _ = thinpid_exact_pid_minimizer(hx, hy, ret_obj=True, reg=reg)
+    # covxy__m = np.block([[np.eye(dx), sig], [sig.T, np.eye(dy)]])
     #covxy = covxy__m + np.vstack((hx, hy)) @ np.vstack((hx, hy)).T
 
     #union_info = 0.5 / np.log(2) * npla.slogdet(
     #    np.eye(dm) + hxy.T @ la.solve(covxy__m + 1e-7 * np.eye(*covxy__m.shape), hxy))[1]
     #union_info = obj
-    union_info = objective(sig, hx, hy, dm, dx, dy, reg=reg)
+    union_info = compute_union_info(sig, hx, hy, dm, dx, dy, reg=reg)
 
     union_info *= debias_factor
 

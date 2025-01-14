@@ -61,6 +61,100 @@ def whiten(cov, dm, dx, dy, ret_channel_params=False):
         return sig_mxy, sig_x_m, sig_y_m, sig_xy_m, sig_xy__m
     return sig_mxy
 
+def robust_whiten(cov, dm, dx, dy, ret_channel_params=True, epsilon=1e-6):
+    """
+    Robust implementation of matrix whitening that handles near-singular matrices.
+    
+    Parameters:
+    -----------
+    cov : numpy.ndarray
+        Covariance matrix to whiten
+    dm : int
+        Dimension of the first part of the matrix
+    dx : int
+        Input dimension
+    dy : int
+        Output dimension
+    ret_channel_params : bool, optional
+        Whether to return channel parameters
+    epsilon : float, optional
+        Small constant for numerical stability
+    
+    Returns:
+    --------
+    tuple
+        Whitened matrix and channel parameters if ret_channel_params=True
+    """
+    def robust_solve(a, b):
+        """
+        Robust matrix solve that handles near-singular matrices using
+        regularization and pseudoinverse when needed.
+        """
+        try:
+            # First try regular solve with positive definite assumption
+            return la.solve(a, b, assume_a='pos')
+        except la.LinAlgError:
+            # If that fails, try pseudoinverse approach
+            a_reg = a + epsilon * np.eye(a.shape[0])
+            return np.linalg.pinv(a_reg) @ b
+
+    def robust_sqrtm(matrix):
+        """
+        Robust matrix square root that handles numerical issues.
+        """
+        # Add small regularization to ensure positive definiteness
+        matrix_reg = matrix + epsilon * np.eye(matrix.shape[0])
+        
+        # Compute eigendecomposition
+        eigvals, eigvecs = npla.eigh(matrix_reg)
+        
+        # Set any negative eigenvalues to small positive value
+        eigvals = np.maximum(eigvals, epsilon)
+        
+        # Compute matrix square root
+        sqrt_eigvals = np.sqrt(eigvals)
+        return eigvecs @ np.diag(sqrt_eigvals) @ eigvecs.T
+
+    # Copy input matrix
+    sig_mxy = cov.copy()
+    sig_m = cov[:dm, :dm]
+    
+    # Compute square root matrix robustly
+    sqrt_sig_m = robust_sqrtm(sig_m)
+    
+    # Perform whitening transformation
+    sig_mxy[:, :dm] = robust_solve(sqrt_sig_m, sig_mxy[:, :dm].T).T
+    sig_mxy[:dm, :] = robust_solve(sqrt_sig_m, sig_mxy[:dm, :])
+    
+    # Update sig_m
+    sig_m = sig_mxy[:dm, :dm]
+    
+    # Extract necessary parameters
+    sig_x = sig_mxy[dm:dm+dx, dm:dm+dx]
+    sig_y = sig_mxy[dm+dx:, dm+dx:]
+    sig_x_m = sig_mxy[dm:dm+dx, :dm]  # Also equal to hx pre-whitening
+    sig_y_m = sig_mxy[dm+dx:, :dm]    # Also equal to hy pre-whitening
+
+    # Compute channel noise covariance matrices (TODO: Skip the solve here because sig_m = I?)
+    sig_x__m = sig_x - sig_x_m @ robust_solve(sig_m, sig_x_m.T)
+    sig_y__m = sig_y - sig_y_m @ robust_solve(sig_m, sig_y_m.T)
+
+    # Whiten the X-channel
+    sig_mxy[:, dm:dm+dx] = robust_solve(robust_sqrtm(sig_x__m).real, sig_mxy[:, dm:dm+dx].T).T
+    sig_mxy[dm:dm+dx, :] = robust_solve(robust_sqrtm(sig_x__m).real, sig_mxy[dm:dm+dx, :])
+
+    # Whiten the Y-channel
+    sig_mxy[:, dm+dx:] = robust_solve(robust_sqrtm(sig_y__m).real, sig_mxy[:, dm+dx:].T).T
+    sig_mxy[dm+dx:, :] = robust_solve(robust_sqrtm(sig_y__m).real, sig_mxy[dm+dx:, :])
+
+    # Extract the final joint covariance of (X, Y) given M
+    sig_xy = sig_mxy[dm:, dm:]
+    sig_xy_m = sig_mxy[dm:, :dm]
+    sig_xy__m = sig_xy - sig_xy_m @ robust_solve(sig_m, sig_xy_m.T) # TODO: Skip solve?
+
+    if ret_channel_params:
+        return sig_mxy, sig_x_m, sig_y_m, sig_xy_m, sig_xy__m
+    return sig_mxy
 
 def recondition(x, max_cond=1e10, return_tf=False):
     """
