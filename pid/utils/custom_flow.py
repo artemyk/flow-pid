@@ -61,7 +61,7 @@ class CartesianProductFlow(nn.Module):
         z_y, log_det_y = self.model_y.inverse_and_log_det(y)
         z_m, log_det_m = self.model_m.inverse_and_log_det(m)
 
-        return z_m, z_x, z_y, log_det_x + log_det_y + log_det_m
+        return z_m, z_x, z_y, log_det_x + log_det_y + log_det_m*2
     
     def estimate_latent_mean(self, m, x, y):
         z_m, z_x, z_y, log_det = self.forward(m, x, y)
