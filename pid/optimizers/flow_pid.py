@@ -1,22 +1,13 @@
 import numpy as np
 from tqdm import tqdm
-import scipy.linalg as la
-import numpy.linalg as npla
 
 import torch
-import normflows as nf
 
-import pid
-import pid.utils.distributions as dist
-from pid.utils.generate import sample_mult_poisson
 from pid.utils.custom_flow import CartesianProductFlow
 from pid.optimizers import exact_gauss_tilde_pid, exact_tilde_union_info_minimizer, exact_gauss_thin_pid, thinpid_exact_pid_minimizer
-from pid.utils import whiten
 
 from torch.utils.data import TensorDataset, DataLoader
 import matplotlib.pyplot as plt
-
-
 
 
 def flow_pid(m,x,y, n_flows=3, n_epochs=250, batch_size=64, lr = 2e-4, verbose=False, ret_t_sigt=False):
@@ -52,6 +43,7 @@ def train_flow(m_data, x_data, y_data, n_flows, n_epochs=100, batch_size=64, lr=
     dim_x, dim_y, dim_m = x_data.shape[1], y_data.shape[1], m_data.shape[1]
     flow = CartesianProductFlow(dim_m, dim_x, dim_y, n_flows)
     optimizer = torch.optim.Adam(flow.parameters(), lr=lr)
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=n_epochs)
     
     # Create and standardize dataset
     x_data = torch.tensor(x_data,dtype=torch.float32)
@@ -83,28 +75,29 @@ def train_flow(m_data, x_data, y_data, n_flows, n_epochs=100, batch_size=64, lr=
             # Backward pass
             loss.backward()
             optimizer.step()
+            scheduler.step()
             
             epoch_losses.append(loss.item())
         
         avg_loss = sum(epoch_losses) / len(epoch_losses)
         losses.append(avg_loss)
         
-        with torch.no_grad():
-            if (epoch + 1) % 50 == 0:
-                if verbose:
-                    print(f"Epoch {epoch+1}/{n_epochs}, Loss: {avg_loss:.4f}")
-                
-                # Print learned parameters
-                # print(f"Learned mean: {flow.estimate_latent_mean(z_m, z_x, z_y).data}")
-                # print(f"Learned covariance:\n{flow.estimate_latent_cov(z_m, z_x, z_y).data}")
-
-                if epoch > 40:
-                    cov = flow.estimate_latent_cov(m_data_standardized, x_data_standardized, y_data_standardized).detach().cpu().numpy()
-                    cov = covariance_to_correlation(cov)
-                    ret = exact_gauss_thin_pid(cov, dim_m, dim_x, dim_y)
-                    
-                    if verbose:
-                        print("Flow PID: ", ret[7], ret[5], ret[6], ret[8])
+        # with torch.no_grad():
+        #     if (epoch + 1) % 50 == 0:
+        #         if verbose:
+        #             print(f"Epoch {epoch+1}/{n_epochs}, Loss: {avg_loss:.4f}")
+        #
+        #         # Print learned parameters
+        #         # print(f"Learned mean: {flow.estimate_latent_mean(z_m, z_x, z_y).data}")
+        #         # print(f"Learned covariance:\n{flow.estimate_latent_cov(z_m, z_x, z_y).data}")
+        #
+        #         if epoch > 40:
+        #             cov = flow.estimate_latent_cov(m_data_standardized, x_data_standardized, y_data_standardized).detach().cpu().numpy()
+        #             cov = covariance_to_correlation(cov)
+        #             ret = exact_gauss_thin_pid(cov, dim_m, dim_x, dim_y)
+        #
+        #             if verbose:
+        #                 print("Flow PID: ", ret[7], ret[5], ret[6], ret[8])
     
     # Plot loss curve
     if verbose:
