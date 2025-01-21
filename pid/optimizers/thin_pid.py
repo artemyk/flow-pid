@@ -208,7 +208,7 @@ def exact_gauss_thin_pid(cov, dm, dx, dy, verbose=False, ret_t_sigt=False,
     #union_info = 0.5 / np.log(2) * npla.slogdet(
     #    np.eye(dm) + hxy.T @ la.solve(covxy__m + 1e-7 * np.eye(*covxy__m.shape), hxy))[1]
     #union_info = obj
-    union_info = compute_union_info(sig, hx, hy, dm, dx, dy, reg=reg)
+    union_info = compute_union_info(sig.T, hx, hy, dm, dx, dy, reg=reg)
 
     union_info *= debias_factor
 
