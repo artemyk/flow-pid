@@ -1,9 +1,10 @@
 import torch
 import torch.nn as nn
 import normflows as nf
+from ..utils.distributions import GaussianPCA
 
 class CartesianProductFlow(nn.Module):
-    def __init__(self, dim_m, dim_x, dim_y, n_flows=3):
+    def __init__(self, dim_m, dim_x, dim_y, n_flows=3, flow_type='RealNVP'):
         super().__init__()
         self.dim_m = dim_m
         self.dim_x = dim_x
@@ -17,21 +18,9 @@ class CartesianProductFlow(nn.Module):
 
 
         # Create flows
-        flows_x = []
-        flows_y = []
-        flows_m = []
-
-        for _ in range(n_flows):
-            flows_x += [nf.flows.AutoregressiveRationalQuadraticSpline(dim_x, 2, 64)]
-            flows_x += [nf.flows.LULinearPermute(dim_x)]
-            flows_y += [(nf.flows.AutoregressiveRationalQuadraticSpline(dim_y, 2, 64))]
-            flows_y += [nf.flows.LULinearPermute(dim_y)]
-            flows_m += [(nf.flows.AutoregressiveRationalQuadraticSpline(dim_m, 2, 64))]
-            flows_m += [nf.flows.LULinearPermute(dim_m)]
-
-        flows_x = self._create_flows(n_flows, dim_x)
-        flows_y = self._create_flows(n_flows, dim_y)
-        flows_m = self._create_flows(n_flows, dim_m)
+        flows_x = self._create_flows(n_flows, dim_x, flow_type=flow_type)
+        flows_y = self._create_flows(n_flows, dim_y, flow_type=flow_type)
+        flows_m = self._create_flows(n_flows, dim_m, flow_type=flow_type)
 
         self.model_x = nf.NormalizingFlow(q0=self.base_x, flows=flows_x)
         self.model_y = nf.NormalizingFlow(q0=self.base_y, flows=flows_y)
@@ -51,10 +40,11 @@ class CartesianProductFlow(nn.Module):
     #     return self.L @ self.L.T
 
     def _create_flows(self, n_flows, n_bottleneck, flow_type='RealNVP'):
-        if flow_type == 'Planar':
-            flows = [nf.flows.Planar((n_bottleneck,)) for k in range(n_flows)]
-        elif flow_type == 'Radial':
-            flows = [nf.flows.Radial((n_bottleneck,)) for k in range(n_flows)]
+        if flow_type == 'Spline':
+            flows = []
+            for i in range(n_flows):
+                flows += [nf.flows.AutoregressiveRationalQuadraticSpline(n_bottleneck, 2, 64)]
+                flows += [nf.flows.LULinearPermute(n_bottleneck)]
         elif flow_type == 'RealNVP':
             b = torch.tensor(n_bottleneck // 2 * [0, 1] + n_bottleneck % 2 * [0])
             flows = []
@@ -107,8 +97,6 @@ class CartesianProductFlow(nn.Module):
 
         z_mx = torch.cat([z_m, z_x], dim=-1)
         z_my = torch.cat([z_m, z_y], dim=-1)
-
-        # print(z_m.shape, z_x.shape, z_y.shape, z_mx.shape, z_my.shape)
 
         # mean_mx = self.mean[:self.dim_m+self.dim_x]
         # mean_my = torch.cat([self.mean[:self.dim_m], self.mean[-self.dim_y:]], dim=0)
