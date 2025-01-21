@@ -1,6 +1,7 @@
 from . import (
     thin_pid,
     tilde_pid,
+    supervised_learning
 )
 
 from .thin_pid import thinpid_exact_pid_minimizer, exact_gauss_thin_pid

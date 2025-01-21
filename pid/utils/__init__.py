@@ -4,7 +4,7 @@ from . import (
     random_channel,
 )
 
-from .distributions import DiagGaussian, GaussianPCA, mult_poisson_dist
+from .distributions import DiagGaussian, MultivariateGaussian, GaussianPCA, mult_poisson_dist
 from .random_channel import whiten, solve, robust_whiten
 from .generate import (
     generate_randomBC,

@@ -20,15 +20,19 @@ class CartesianProductFlow(nn.Module):
         flows_x = []
         flows_y = []
         flows_m = []
-        
+
         for _ in range(n_flows):
-            flows_x += [nf.flows.AutoregressiveRationalQuadraticSpline(dim_x, 2, 128)]
+            flows_x += [nf.flows.AutoregressiveRationalQuadraticSpline(dim_x, 2, 64)]
             flows_x += [nf.flows.LULinearPermute(dim_x)]
-            flows_y += [(nf.flows.AutoregressiveRationalQuadraticSpline(dim_y, 2, 128))]
+            flows_y += [(nf.flows.AutoregressiveRationalQuadraticSpline(dim_y, 2, 64))]
             flows_y += [nf.flows.LULinearPermute(dim_y)]
-            flows_m += [(nf.flows.AutoregressiveRationalQuadraticSpline(dim_m, 2, 128))]
+            flows_m += [(nf.flows.AutoregressiveRationalQuadraticSpline(dim_m, 2, 64))]
             flows_m += [nf.flows.LULinearPermute(dim_m)]
-        
+
+        flows_x = self._create_flows(n_flows, dim_x)
+        flows_y = self._create_flows(n_flows, dim_y)
+        flows_m = self._create_flows(n_flows, dim_m)
+
         self.model_x = nf.NormalizingFlow(q0=self.base_x, flows=flows_x)
         self.model_y = nf.NormalizingFlow(q0=self.base_y, flows=flows_y)
         self.model_m = nf.NormalizingFlow(q0=self.base_m, flows=flows_m)
@@ -45,7 +49,27 @@ class CartesianProductFlow(nn.Module):
         
     # def get_covariance(self):
     #     return self.L @ self.L.T
-        
+
+    def _create_flows(self, n_flows, n_bottleneck, flow_type='RealNVP'):
+        if flow_type == 'Planar':
+            flows = [nf.flows.Planar((n_bottleneck,)) for k in range(n_flows)]
+        elif flow_type == 'Radial':
+            flows = [nf.flows.Radial((n_bottleneck,)) for k in range(n_flows)]
+        elif flow_type == 'RealNVP':
+            b = torch.tensor(n_bottleneck // 2 * [0, 1] + n_bottleneck % 2 * [0])
+            flows = []
+            for i in range(n_flows):
+                s = nf.nets.MLP([n_bottleneck, n_bottleneck])
+                t = nf.nets.MLP([n_bottleneck, n_bottleneck])
+                if i % 2 == 0:
+                    flows += [nf.flows.MaskedAffineFlow(b, t, s)]
+                else:
+                    flows += [nf.flows.MaskedAffineFlow(1 - b, t, s)]
+        else:
+            raise NotImplementedError
+
+        return flows
+
     def forward(self, m, x, y):
         # z_x = self.model_x.forward(x)
         # log_det_x = self.model_x.forward_kld(x)
@@ -67,6 +91,11 @@ class CartesianProductFlow(nn.Module):
         z_m, z_x, z_y, log_det = self.forward(m, x, y)
         z_combined = torch.cat([z_m, z_x, z_y], dim=-1)
         return torch.mean(z_combined, dim=0)
+
+    def stack_mxy(self, m, x, y):
+        z_m, z_x, z_y, _ = self.forward(m, x, y)
+        z_mxy = torch.cat([z_m, z_x, z_y], dim=-1)
+        return z_mxy
 
     def estimate_latent_cov(self, m, x, y):
         z_m, z_x, z_y, log_det = self.forward(m, x, y)

@@ -68,6 +68,43 @@ class DiagGaussian(BaseDistribution):
         return self.log_scale.detach() if detach else self.log_scale
 
 
+class MultivariateGaussian(BaseDistribution):
+    def __init__(self, dim):
+        super().__init__()
+        self.dim = dim
+        self.loc = nn.Parameter(torch.zeros(dim))
+        self.L = nn.Parameter(torch.eye(dim))  # Initialize with a small value
+
+    def forward(self, num_samples=1):
+        eps = torch.randn(
+            num_samples, self.dim, dtype=self.loc.dtype, device=self.loc.device
+        )
+        z = self.loc + torch.matmul(eps, self.L)
+
+        log_p = (
+            self.dim / 2 * np.log(2 * np.pi)
+            - 0.5 * torch.det(self.L @ self.L.T)
+            - 0.5 * torch.sum(eps * torch.matmul(eps, torch.inverse(self.L)), 1)
+        )
+
+        return z, log_p
+
+    def log_prob(self, z):
+        z_ = z - self.loc
+
+        log_p = (
+            self.dim / 2 * np.log(2 * np.pi)
+            - 0.5 * torch.det(self.L @ self.L.T)
+            - 0.5 * torch.sum(z_ * torch.matmul(z_, torch.inverse(self.L)), 1)
+        )
+
+        return log_p
+
+    def get_covariance(self, detach=True):
+        cov = self.L @ self.L.T
+        return cov.detach() if detach else cov
+
+
 class GaussianPCA(BaseDistribution):
     """
     Gaussian distribution resulting from linearly mapping a normal distributed latent
