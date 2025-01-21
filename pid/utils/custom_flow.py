@@ -49,8 +49,8 @@ class CartesianProductFlow(nn.Module):
             b = torch.tensor(n_bottleneck // 2 * [0, 1] + n_bottleneck % 2 * [0])
             flows = []
             for i in range(n_flows):
-                s = nf.nets.MLP([n_bottleneck, n_bottleneck])
-                t = nf.nets.MLP([n_bottleneck, n_bottleneck])
+                s = nf.nets.MLP([n_bottleneck, n_bottleneck], init_zeros= True)
+                t = nf.nets.MLP([n_bottleneck, n_bottleneck], init_zeros= True)
                 if i % 2 == 0:
                     flows += [nf.flows.MaskedAffineFlow(b, t, s)]
                 else:
