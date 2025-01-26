@@ -141,3 +141,88 @@ class GlobalPooling2D(nn.Module):
         x = x.view(x.size(0), -1)
 
         return x
+
+class LeNetEncoder(nn.Module):
+    """Implements a LeNet Encoder for MVAE."""
+    
+    def __init__(self, in_channels, arg_channels, additional_layers, latent, twooutput=True):
+        """Instantiate LeNetEncoder Module
+
+        Args:
+            in_channels (int): Input Dimensions
+            arg_channels (int): Arg channels dimension size
+            additional_layers (int): Number of additional layers
+            latent (int): Latent dimension size
+            twooutput (bool, optional): Whether to output twice the size of the latent. Defaults to True.
+        """
+        super(LeNetEncoder, self).__init__()
+        self.latent = latent
+        self.lenet = LeNet(in_channels, arg_channels, additional_layers)
+        if twooutput:
+            self.linear = nn.Linear(
+                arg_channels*(2**additional_layers), latent*2)
+        else:
+            self.linear = nn.Linear(
+                arg_channels*(2**additional_layers), latent)
+
+        self.twoout = twooutput
+
+    def forward(self, x):
+        """Apply LeNetEncoder to Layer Input.
+
+        Args:
+            x (torch.Tensor): Layer Input
+
+        Returns:
+            torch.Tensor: Layer Output
+        """
+        out = self.lenet(x)
+        out = self.linear(out)
+        if self.twoout:
+            return out[:, :self.latent]# , out[:, self.latent:]
+        return out
+
+class DeLeNet(nn.Module):
+    """Implements an image deconvolution decoder for MVAE."""
+    
+    def __init__(self, in_channels, arg_channels, additional_layers, latent):
+        """Instantiate DeLeNet Module.
+
+        Args:
+            in_channels (int): Number of input channels
+            arg_channels (int): Number of arg channels
+            additional_layers (int): Number of additional layers.
+            latent (int): Latent dimension size
+        """
+        super(DeLeNet, self).__init__()
+        self.linear = nn.Linear(latent, arg_channels*(2**(additional_layers)))
+        self.deconvs = []
+        self.bns = []
+        for i in range(additional_layers):
+            self.deconvs.append(nn.ConvTranspose2d(arg_channels*(2**(additional_layers-i)), arg_channels*(
+                2**(additional_layers-i-1)), kernel_size=4, stride=2, padding=1, bias=False))
+            self.bns.append(nn.BatchNorm2d(
+                arg_channels*(2**(additional_layers-i-1))))
+        self.deconvs.append(nn.ConvTranspose2d(
+            arg_channels, in_channels, kernel_size=8, stride=4, padding=1, bias=False))
+        self.deconvs = nn.ModuleList(self.deconvs)
+        self.bns = nn.ModuleList(self.bns)
+
+    def forward(self, x):
+        """Apply DeLeNet to Layer Input.
+
+        Args:
+            x (torch.Tensor): Layer Input
+
+        Returns:
+            torch.Tensor: Layer Output
+        """
+        out = self.linear(x).unsqueeze(2).unsqueeze(3)
+        for i in range(len(self.deconvs)):
+            out = self.deconvs[i](out)
+            
+            if i < len(self.deconvs)-1:
+                out = self.bns[i](out)
+        return out
+
+
