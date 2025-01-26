@@ -27,7 +27,7 @@ if __name__ == '__main__':
     device = torch.device('cuda' if torch.cuda.is_available() and enable_cuda else 'cpu')
     print(f"Using device: {device}")
 
-    x_data, y_data, m_data = prepare_data('./pretrained/mosi/mosi_features.npy', modalities = [0,2])
+    x_data, y_data, m_data = prepare_data('./pretrained/mosi/mosi_features_mfm.npy', modalities = [0,2])
 
     scale = 1/2.0*0
     eps = np.random.rand(m_data.shape[0], 1) * scale
