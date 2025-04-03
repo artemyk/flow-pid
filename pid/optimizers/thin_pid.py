@@ -1,4 +1,3 @@
-# Tian Nov. 2024.
 # Thin PID core algorithm
 # import os
 # os.environ['OPENBLAS_NUM_THREADS'] = '1'
@@ -8,47 +7,65 @@ import numpy as np
 import scipy.linalg as la
 import numpy.linalg as npla
 
-from ..utils import whiten, robust_whiten
+from .tilde_pid import project as tilde_project
+from ..utils import whiten, robust_whiten, pinv
 
 
 # Suppress the specific warning: linAlgWarning: Ill-conditioned matrix since we can just resolve it or approximate it
 # warnings.filterwarnings("ignore", category=la.LinAlgWarning)
 
-def objective(sig, G):  # the objective function
+def objective(sig, hx, hy, dm, dx, dy, reg):  # the objective function
     dx, dy = sig.shape
+
+    H = np.concatenate((hx, hy), axis=0)
     sig_all = np.block([[np.eye(dx), sig],
                         [sig.T, np.eye(dy)]])
-    obj = 0.5 / np.log(2) * (npla.slogdet(G + sig_all)[1] - npla.slogdet(sig_all)[1])
-    return obj
 
-def compute_union_info(sig, hx, hy, dm, dx, dy, reg):
-    S = (1 + reg) * np.eye(dx) - sig @ sig.T
-    B = hx - sig @ hy
-    obj = 0.5 / np.log(2) * npla.slogdet(
-        np.eye(dm) + hy.T @ hy + B.T @ la.solve(S, B)
-    )[1]
+    obj = 0.5 / np.log(2) * (npla.slogdet(H @ H.T + sig_all)[1] - npla.slogdet(sig_all)[1])
     return obj
 
 
-def project(sig_temp):  # project the matrix onto the PSD cone, but only need to work with the upper triangular part
+def gradient(sig, hx, hy, dm, dx, dy, reg):
+    H = np.concatenate((hx, hy), axis=0)
+    sig_all = np.block([[np.eye(dx), sig],
+                        [sig.T, np.eye(dy)]])
+
+    G = H @ H.T + sig_all
+    G_11 = G[0:dx, 0:dx]
+    G_12 = G[0:dx, dx:dx + dy]
+    G_22 = G[dx:dx + dy, dx:dx + dy]
+    G11_inv_G12 = la.solve(G_11, G_12)
+
+    # Matrix computation intermediate steps to compute the gradient
+    A = G_22 - G_12.T @ G11_inv_G12 + reg * np.eye(dy)
+    A1 = np.eye(dy) - sig.T @ sig + reg * np.eye(dy)
+
+    sol_AB = npla.solve(A, G11_inv_G12.T)
+    sol_AB1 = npla.solve(A1, sig.T)
+    g_sig = -sol_AB + sol_AB1
+    g_sig = g_sig.T
+    return g_sig
+
+
+def thin_project(sig_temp):  # project the matrix onto the PSD cone, but only need to work with the upper triangular part
 
     U, S, VT = npla.svd(sig_temp, full_matrices=False)
-    S_clamped = np.clip(S, 0,
-                        0.99999999999999999)  # instead of clamping to [0,1], we clamp to [1e-10,0.99999999999999999] to avoid numerical issues
+    S_clamped = np.clip(S, 0, 0.99999999999999999)  # clamp to [1e-10,0.99999999999999999] to avoid numerical issues
     S_clamped_matrix = np.diag(S_clamped)
-    sig_modified = U @ S_clamped_matrix @ VT
+    sig_proj = U @ S_clamped_matrix @ VT
 
-    return sig_modified
+    return sig_proj, True
 
 
-def thinpid_exact_pid_minimizer(hx, hy, ret_obj=False, reg=1e-7, max_iters=20000):
-    dx, dT = hx.shape
-    dy, dT_ = hy.shape
-    if dT != dT_:
+def exact_thin_pid_minimizer(hx, hy, plot=False, ret_obj=False, reg=1e-7, max_iters=20000):
+    dx, dm = hx.shape
+    dy, dm_ = hy.shape
+    if dm != dm_:
         raise ValueError('Incompatible shapes for Hx and Hy')
 
     if dx < dy:  # Swap if necessary, since we assume dx >= dy
         dx, dy = dy, dx
+        hy, hx = hx, hy
 
     # Gradient descent
     eta_sig = 1e-3 * np.ones((dx, dy))
@@ -60,25 +77,19 @@ def thinpid_exact_pid_minimizer(hx, hy, ret_obj=False, reg=1e-7, max_iters=20000
     patience = 20  # Num iters with small gradient before stopping (min=1)
     extra_iters = 0  # Num of extra iters after stop criterion is attained
 
-    H = np.concatenate((hx, hy), axis=0)
-    G = H @ H.T
-    G_11 = G[0:dx, 0:dx]
-    G_12 = G[0:dx, dx:dx + dy]
-    G_22 = G[dx:dx + dy, dx:dx + dy]
-
     minima = None
     g_sig_prev = None
     running_obj = []
     i = 1
     extra = 0
 
-    GI_11_inv = npla.inv(G_11 + np.eye(dx))
-    GI_22 = G_22 + np.eye(dy)
-    sig = np.zeros((dx, dy))
+    sig_temp = hx @ pinv(hy)
+    sig_temp_proj, _ = tilde_project(sig_temp)
+    sig = sig_temp_proj.copy()
 
     while True:
         # Evaluate the objective
-        obj = objective(sig, G)
+        obj = objective(sig, hx, hy, dm, dx, dy, reg)
 
         if minima is None or obj < min(running_obj):
             minima = (sig.copy(), obj)
@@ -101,33 +112,13 @@ def thinpid_exact_pid_minimizer(hx, hy, ret_obj=False, reg=1e-7, max_iters=20000
             running_obj.append(obj)
         i += 1
 
-        # Matrix computation intermediate steps to compute the gradient
-        safty = 1e-8
-        R = (G_12 + sig)
-        B = GI_11_inv @ R
-        A = GI_22 - R.T @ B
-        A1 = np.eye(dy) - sig.T @ sig
-
-        # need to invert the matrices, but the result is occasionally unstable
-        try:
-            sol_AB = npla.solve(A, B.T)
-        except npla.LinAlgError:
-            A = A + safty * np.eye(dy)
-            sol_AB = npla.solve(A, B.T)
-        try:
-            sol_AB1 = npla.solve(A1, sig.T)
-        except npla.LinAlgError:
-            A1 = A1 + safty * np.eye(dy)
-            sol_AB = npla.solve(A1, sig.T)
-
-        g_sig = -sol_AB + sol_AB1
-        g_sig = g_sig.T
-        # take only the signs for Rprop
+        g_sig = gradient(sig, hx, hy, dm, dx, dy, reg)
         g_sig = np.sign(g_sig).astype(int)
+
         # gradient descent
         sig_plus = sig - alpha ** i * eta_sig * g_sig
         # project sig back onto the PSD cone, but only need to work with the upper triangular part
-        sig_proj = project(sig_plus)
+        sig_proj, _ = tilde_project(sig_plus)
 
         # Learning rate update
         if g_sig_prev is not None:
@@ -201,14 +192,14 @@ def exact_gauss_thin_pid(cov, dm, dx, dy, verbose=False, ret_t_sigt=False,
 
     #sig = exact_tilde_union_info_minimizer(hx, hy, plot=plot)
 
-    sig, obj, _ = thinpid_exact_pid_minimizer(hx, hy, ret_obj=True, reg=reg)
+    sig, obj, _ = exact_thin_pid_minimizer(hx, hy, ret_obj=True, reg=reg)
     # covxy__m = np.block([[np.eye(dx), sig], [sig.T, np.eye(dy)]])
     #covxy = covxy__m + np.vstack((hx, hy)) @ np.vstack((hx, hy)).T
 
     #union_info = 0.5 / np.log(2) * npla.slogdet(
     #    np.eye(dm) + hxy.T @ la.solve(covxy__m + 1e-7 * np.eye(*covxy__m.shape), hxy))[1]
     #union_info = obj
-    union_info = compute_union_info(sig.T, hx, hy, dm, dx, dy, reg=reg)
+    union_info = objective(sig.T, hx, hy, dm, dx, dy, reg=reg)
 
     union_info *= debias_factor
 

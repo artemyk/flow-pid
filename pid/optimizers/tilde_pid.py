@@ -59,6 +59,7 @@ def project(sig_temp):
 
     V = V.real
     lamda[lamda < 0] = 0
+    lamda[lamda > 1] = 1
     covxy__m = V @ np.diag(lamda) @ V.T
 
     covx__m = covxy__m[:dx, :dx]

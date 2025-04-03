@@ -4,7 +4,7 @@ from . import (
     fusions
 )
 
-from .flows import CartesianFlow
+from .flows import CartesianProductFlow, norm_flows, glows
 from .fusions import Concat
 from .unimodels import (
     MLP,

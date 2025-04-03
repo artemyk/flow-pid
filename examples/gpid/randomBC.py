@@ -12,7 +12,7 @@ from pid.utils import generate_randomBC
 
 def main(step=10, start=10, max_dT=50, num_runs=3, ratio=[0.8, 0.8]):
     R = np.array([1, ratio[0], ratio[1]])
-    result_dir = Path(os.path.join(f"results"))
+    result_dir = Path(os.path.join(f"../results"))
     result_dir.mkdir(parents=True, exist_ok=True)
     result_file = Path(os.path.join(result_dir, f"testingresult_{ratio[0]}_{ratio[1]}.mat"))
 

@@ -1,5 +1,6 @@
 import numpy as np
 import scipy.linalg as la
+import numpy.linalg as npla
 
 
 def solve(a, b):

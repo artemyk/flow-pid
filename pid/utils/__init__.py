@@ -1,10 +1,12 @@
 from . import (
     distributions,
     generate,
+    linalg,
     random_channel,
 )
 
-from .distributions import DiagGaussian, MultivariateGaussian, GaussianPCA, mult_poisson_dist
+from .distributions import MultivariateGaussian, mult_poisson_dist
+from .linalg import pinv
 from .random_channel import whiten, solve, robust_whiten
 from .generate import (
     generate_randomBC,
@@ -14,4 +16,3 @@ from .generate import (
     random_rotation_mxy
 )
 from .estimate import approx_pid_from_cov
-from .custom_flow import CartesianProductFlow
