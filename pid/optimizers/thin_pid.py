@@ -63,9 +63,11 @@ def exact_thin_pid_minimizer(hx, hy, plot=False, ret_obj=False, reg=1e-7, max_it
     if dm != dm_:
         raise ValueError('Incompatible shapes for Hx and Hy')
 
+    swap = False
     if dx < dy:  # Swap if necessary, since we assume dx >= dy
         dx, dy = dy, dx
         hy, hx = hx, hy
+        swap = True
 
     # Gradient descent
     eta_sig = 1e-3 * np.ones((dx, dy))
@@ -130,6 +132,9 @@ def exact_thin_pid_minimizer(hx, hy, plot=False, ret_obj=False, reg=1e-7, max_it
 
     sig, obj = minima
 
+    if swap:
+        sig = sig.T
+
     if ret_obj:
         return sig, obj, i
     return sig
@@ -190,17 +195,9 @@ def exact_gauss_thin_pid(cov, dm, dx, dy, verbose=False, ret_t_sigt=False,
 
     debias_factor = imxy_debiased / imxy
 
-    #sig = exact_tilde_union_info_minimizer(hx, hy, plot=plot)
+    sig, obj, _ = exact_thin_pid_minimizer(hx, hy, plot=plot, ret_obj=True, reg=reg)
 
-    sig, obj, _ = exact_thin_pid_minimizer(hx, hy, ret_obj=True, reg=reg)
-    # covxy__m = np.block([[np.eye(dx), sig], [sig.T, np.eye(dy)]])
-    #covxy = covxy__m + np.vstack((hx, hy)) @ np.vstack((hx, hy)).T
-
-    #union_info = 0.5 / np.log(2) * npla.slogdet(
-    #    np.eye(dm) + hxy.T @ la.solve(covxy__m + 1e-7 * np.eye(*covxy__m.shape), hxy))[1]
-    #union_info = obj
-    union_info = objective(sig.T, hx, hy, dm, dx, dy, reg=reg)
-
+    union_info = objective(sig, hx, hy, dm, dx, dy, reg=reg)
     union_info *= debias_factor
 
     # Union info is lower bounded by max{I(M; X), I(M; Y)} and upper bounded by
@@ -213,11 +210,6 @@ def exact_gauss_thin_pid(cov, dm, dx, dy, verbose=False, ret_t_sigt=False,
     uiy = union_info - imx
     ri = imx + imy - union_info
     si = imxy_debiased - union_info
-
-    #uix = (union_info - imy) * debias_factor
-    #uiy = (union_info - imx) * debias_factor
-    #ri = (imx + imy - union_info) * debias_factor
-    #si = (imxy - union_info) * debias_factor
 
     # Return union_info and None in place of deficiency values to keep return signature consistent
     ret = (imx, imy, imxy_debiased, union_info, obj, uix, uiy, ri, si)

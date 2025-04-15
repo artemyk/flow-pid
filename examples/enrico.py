@@ -38,7 +38,7 @@ if __name__ == '__main__':
     print(f'tilde pid: {ret[7]}, {ret[5]}, {ret[6]}, {ret[8]} \n')
     
 
-    ret = flow_pid(m_data, x_data, y_data, n_flows=10, n_epochs=2000, batch_size=1000, lr=2e-3, verbose=True, device=device)
+    ret = flow_pid(m_data, x_data, y_data, n_flows=10, n_epochs=1000, batch_size=1000, lr=1e-4, verbose=True, device=device)
     norm = ret[7] + ret[5] + ret[6] + ret[8]
     print(ret[7], ret[5], ret[6], ret[8])
     r, ux, uy, si = ret[7] / norm, ret[5] / norm, ret[6] / norm, ret[8] / norm

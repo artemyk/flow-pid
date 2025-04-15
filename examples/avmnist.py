@@ -1,5 +1,6 @@
 import numpy as np
 import torch
+import torch.nn as nn
 from torch.utils.data import TensorDataset, DataLoader
 
 from pid.models.fusions import Concat
@@ -165,6 +166,18 @@ def learn_features_from_encoder(x_data, y_data, batch_size=1000, encoder_path=No
     return x_features, y_features
 
 
+class FeatureExtractor(nn.Module):
+    def __init__(self, encoder_list):
+        super(FeatureExtractor, self).__init__()
+        self.x_encoder = encoder_list[0]
+        self.y_encoder = encoder_list[1]
+
+    def forward(self, m, x, y):
+        x = self.x_encoder(x)
+        y = self.y_encoder(y)
+        return m, x, y
+
+
 if __name__ == '__main__':
     ## train encoders if necessary
     # train_encoders(nepochs=30, lr=0.1, weight_decay=0.0001)
@@ -178,10 +191,21 @@ if __name__ == '__main__':
     x_features, y_features = learn_features_from_encoder(x_data, y_data, batch_size=1000, encoder_path='./pretrained/avmnist/av_encoder.pt', device=device)
     scale = 1/11.0
     eps = np.random.rand(m_data.shape[0], 1) * scale
-    m_data = m_data.reshape(-1, 1) + eps
-    print(x_features.shape, y_features.shape, m_data.shape)
+    m_features = m_data.reshape(-1, 1)
 
-    ret = flow_pid(m_data, x_features, y_features, n_flows=2, n_epochs=250, batch_size=128, lr=2e-4, verbose=True, device=device)
+    encoders = [LeNet(1, 6, 3), LeNet(1, 6, 5)]
+    feature_extractor = FeatureExtractor(encoders)
+
+    ret = flow_pid(m_features, x_features, y_features,
+                   n_flows=5, n_epochs=100, batch_size=1000, lr=1e-4,
+                   encoder=None, verbose=True, device=device)
     norm = ret[7] + ret[5] + ret[6] + ret[8]
-    r, ux, uy, si = ret[5] / norm, ret[6] / norm, ret[7] / norm, ret[8] / norm
+    r, ux, uy, si = ret[7] / norm, ret[5] / norm, ret[6] / norm, ret[8] / norm
+    print(f"flow pid, unnorm I_mxy, R: {ret[7]}, UX: {ret[5]}, UY: {ret[6]}, S: {ret[8]}")
     print(f"flow pid, normalized I_mxy, R: {r}, UX: {ux}, UY: {uy}, S: {si}")
+
+
+
+"""
+R: 0.7482150670378348, UX: 0.11552690556922125, UY: 0.07893109242150143, S: 0.05732693497144249
+"""

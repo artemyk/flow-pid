@@ -1,10 +1,11 @@
 from . import (
     flows,
     unimodels,
-    fusions
+    fusions,
+    lmi
 )
 
-from .flows import CartesianProductFlow, norm_flows, glows
+from .flows import norm_flows, glows, CartesianProductFlow, GaussianFlow
 from .fusions import Concat
 from .unimodels import (
     MLP,
