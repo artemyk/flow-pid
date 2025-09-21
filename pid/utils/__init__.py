@@ -5,7 +5,7 @@ from . import (
     random_channel,
 )
 
-from .distributions import MultivariateGaussian, mult_poisson_dist
+from .distributions import MultivariateGaussian, GaussianBC, mult_poisson_dist
 from .linalg import pinv
 from .random_channel import whiten, solve, robust_whiten
 from .generate import (

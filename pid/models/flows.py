@@ -3,8 +3,7 @@ import torch
 import torch.nn as nn
 import normflows as nf
 
-from tqdm import tqdm
-import matplotlib.pyplot as plt
+from ..utils import GaussianBC
 
 
 def create_flows(n_flows, latent_size, q0, flow_type='RealNVP'):
@@ -15,7 +14,7 @@ def create_flows(n_flows, latent_size, q0, flow_type='RealNVP'):
     )
 
 class CartesianProductFlow(nn.Module):
-    def __init__(self, dm, dx, dy, n_flows, encoder=None):
+    def __init__(self, dm, dx, dy, n_flows, encoder=None, gamma=1.0):
         super(CartesianProductFlow, self).__init__()
         self.dm = dm
         self.dx = dx
@@ -34,11 +33,17 @@ class CartesianProductFlow(nn.Module):
             flows=norm_flows(n_flows, dy),
         )
 
-        self.q_mx = nf.distributions.base.GaussianPCA(dm+dx, dm)
-        self.q_my = nf.distributions.base.GaussianPCA(dm+dy, dm)
+        # self.q_mxy = nf.distributions.base.GaussianPCA(dm + dx + dy, dm)
+        self.q_mx = nf.distributions.base.GaussianPCA(dm + dx, dm)
+        self.q_my = nf.distributions.base.GaussianPCA(dm + dy, dm)
+
         self.encoder = encoder
+        self.gamma = gamma
 
     def forward(self, m, x, y):
+        if self.encoder is not None:
+            x, y = self.encoder(x, y)
+
         z_x = self.model_x.inverse(x)
         z_y = self.model_y.inverse(y)
         z_m = self.model_m.inverse(m)
@@ -46,17 +51,29 @@ class CartesianProductFlow(nn.Module):
         return z_m, z_x, z_y
 
     def learning_loss(self, m, x, y):
+        lmi_loss = 0.0
+        if self.encoder is not None:
+            lmi_loss += self.encoder.learning_loss(x, y, m)
+            x, y = self.encoder(x, y)
+
         z_m, log_det_m = self.model_m.inverse_and_log_det(m)
         z_x, log_det_x = self.model_x.inverse_and_log_det(x)
         z_y, log_det_y = self.model_y.inverse_and_log_det(y)
 
+        # z_mxy = torch.cat([z_m, z_x, z_y], dim=-1)
+        # log_prob = self.q_mxy.log_prob(z_mxy)
+        # log_det = log_det_m + log_det_x + log_det_y
+
         z_mx = torch.cat([z_m, z_x], dim=-1)
         z_my = torch.cat([z_m, z_y], dim=-1)
-
-        log_det = log_det_m * 2 + log_det_x + log_det_y
         log_prob = self.q_mx.log_prob(z_mx) + self.q_my.log_prob(z_my)
+        log_det = log_det_m * 2 + log_det_x + log_det_y
 
-        return -(log_prob + log_det).mean()
+        loss = -torch.mean(log_prob + log_det)
+        if self.encoder is not None:
+            loss += lmi_loss * self.gamma
+
+        return loss
 
     def estimate_latent_mean(self, m, x, y):
         z_m, z_x, z_y = self.forward(m, x, y)
@@ -90,41 +107,75 @@ class CartesianProductFlow(nn.Module):
         self.load_state_dict(torch.load(path))
 
 
-
-class GaussianFlow(nn.Module):
-    def __init__(self, dm, dx, dy, n_flows, encoder=None):
-        super(GaussianFlow, self).__init__()
+class BroadcastChannelFlow(nn.Module):
+    def __init__(self, dm, dx, dy, n_flows, encoder=None, gamma=1.0):
+        super(BroadcastChannelFlow, self).__init__()
         self.dm = dm
         self.dx = dx
         self.dy = dy
 
-        q_m = nf.distributions.base.DiagGaussian(dm)
-        q_x = nf.distributions.base.DiagGaussian(dx)
-        q_y = nf.distributions.base.GaussianPCA(dy, dm)
+        context_encoder_x = nf.nets.MLP([dm, dx * 2, 64, dx * 2], init_zeros=True)
+        context_encoder_y = nf.nets.MLP([dm, dx * 2, 64, dy * 2], init_zeros=True)
 
-        flow_m = norm_flows(n_flows, dm)
-        flow_x = norm_flows(n_flows, dx)
-        flow_y = norm_flows(n_flows, dy)
-
-        self.model_m = nf.NormalizingFlow(q0=q_m, flows=flow_m)
-        self.model_x = nf.NormalizingFlow(q0=q_x, flows=flow_x)
-        self.model_y = nf.NormalizingFlow(q0=q_y, flows=flow_y)
+        self.nf_m = nf.NormalizingFlow(
+            q0=nf.distributions.base.DiagGaussian(dm),
+            flows=norm_flows(n_flows, dm),
+        )
+        self.nf_x = nf.NormalizingFlow(
+            q0=nf.distributions.base.ConditionalDiagGaussian(dx, context_encoder_x),
+            flows=norm_flows(n_flows, dx),
+        )
+        self.nf_y = nf.NormalizingFlow(
+            q0=nf.distributions.base.ConditionalDiagGaussian(dy, context_encoder_y),
+            flows=norm_flows(n_flows, dy),
+        )
 
         self.encoder = encoder
+        self.gamma = gamma
 
     def forward(self, m, x, y):
-        z_x = self.model_x.inverse(x)
-        z_y = self.model_y.inverse(y)
-        z_m = self.model_m.inverse(m)
-
+        if self.encoder is not None:
+            x, y = self.encoder(x, y)
+        z_m = self.nf_m.inverse(m)
+        z_x = self.nf_x.inverse(x)
+        z_y = self.nf_y.inverse(y)
         return z_m, z_x, z_y
 
     def learning_loss(self, m, x, y):
-        # loss_m = self.model_m.forward_kld(m)
-        loss_x = self.model_x.forward_kld(x)
-        # loss_y = self.model_y.forward_kld(y)
+        lmi_loss = 0.0
+        if self.encoder is not None:
+            lmi_loss += self.encoder.learning_loss(x, y, m)
+            x, y = self.encoder(x, y)
 
-        return loss_x
+        z_m, log_det_m = self.nf_m.inverse_and_log_det(m)
+        z_x, log_det_x = self.nf_x.inverse_and_log_det(x)
+        z_y, log_det_y = self.nf_y.inverse_and_log_det(y)
+        log_det = log_det_m + log_det_x + log_det_y
+        log_prob = (self.nf_m.q0.log_prob(z_m) + self.nf_x.q0.log_prob(z_x, context=z_m)
+                    + self.nf_y.q0.log_prob(z_y, context=z_m))
+        loss = -(log_prob + log_det).mean()
+
+        if self.encoder is not None:
+            loss += lmi_loss * self.gamma
+
+        return loss
+
+    def save(self, path):
+        """Save state dict of model
+
+        Args:
+          path: Path including filename where to save model
+        """
+        torch.save(self.state_dict(), path)
+
+    def load(self, path):
+        """Load model from state dict
+
+        Args:
+          path: Path including filename where to load model from
+        """
+        self.load_state_dict(torch.load(path))
+
 
 
 def norm_flows(n_flows, latent_size, flow_type='RealNVP'):
@@ -141,8 +192,8 @@ def norm_flows(n_flows, latent_size, flow_type='RealNVP'):
         b = torch.Tensor([1 if i % 2 == 0 else 0 for i in range(latent_size)])
         flows = []
         for i in range(n_flows):
-            s = nf.nets.MLP([latent_size, 2 * latent_size, latent_size], init_zeros=True)
-            t = nf.nets.MLP([latent_size, 2 * latent_size, latent_size], init_zeros=True)
+            s = nf.nets.MLP([latent_size, latent_size // 2, 64, latent_size], init_zeros=True)
+            t = nf.nets.MLP([latent_size, latent_size // 2, 64, latent_size], init_zeros=True)
             if i % 2 == 0:
                 flows += [nf.flows.MaskedAffineFlow(b, t, s)]
             else:
@@ -176,3 +227,25 @@ def glows(n_flows, n_bottleneck, channels, hidden_channels, input_shape, num_cla
         q0 += [nf.distributions.ClassCondDiagGaussian(latent_shape, num_classes)]
 
     return q0, flows, merges
+
+
+def conditional_flows(n_flows, latent_size, hidden_units, hidden_layers, context_size, flow_type='AutoregressiveNeuralSpline'):
+    flows = []
+    if flow_type == 'MaskedAffineAutoregressive':
+        for i in range(n_flows):
+            flows += [nf.flows.MaskedAffineAutoregressive(latent_size, hidden_units,
+                                                          context_features=context_size,
+                                                          num_blocks=hidden_layers)]
+            flows += [nf.flows.LULinearPermute(latent_size)]
+    elif flow_type == 'AutoregressiveNeuralSpline':
+        for i in range(n_flows):
+            flows += [nf.flows.AutoregressiveRationalQuadraticSpline(latent_size, hidden_layers, hidden_units,
+                                                                     num_context_channels=context_size)]
+            flows += [nf.flows.LULinearPermute(latent_size)]
+    elif flow_type == 'CoupledNeuralSpline':
+        for i in range(n_flows):
+            flows += [nf.flows.CoupledRationalQuadraticSpline(latent_size, hidden_layers, hidden_units,
+                                                              num_context_channels=context_size)]
+            flows += [nf.flows.LULinearPermute(latent_size)]
+
+    return flows

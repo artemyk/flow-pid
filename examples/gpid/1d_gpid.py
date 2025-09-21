@@ -1,11 +1,7 @@
 import numpy as np
 import pandas as pd
-import torch
 
 from pid.optimizers import exact_gauss_tilde_pid, mmi_pid, exact_gauss_thin_pid
-from pid.utils.estimate import approx_pid_from_cov
-from pid.utils.generate import sample_mult_poisson
-from pid.utils.distributions import mult_poisson_dist
 
 
 if __name__ == '__main__':
@@ -22,7 +18,7 @@ if __name__ == '__main__':
     config_cols = ['desc', 'id', 'dm', 'dx', 'dy', 'sigma_y__x', 'rho']
     pid_cols = ['imxy', 'uix', 'uiy', 'ri', 'si']
 
-    sigma2_vals = np.r_[0, np.logspace(0, 2, 9)]
+    sigma2_vals = np.r_[0, np.logspace(0, 2, 10)]
     sigm = np.eye(dm)
     hx = np.array([[1]])
     hyx = np.array([[1]])

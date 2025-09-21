@@ -14,44 +14,37 @@ from tqdm import tqdm
 def fit(model, dataloader, n_epochs, lr, device='cpu', verbose=False):
     nfm = fit_flows(model, dataloader, n_epochs, lr, device, verbose=verbose)
     ret = fit_pid(nfm, dataloader, device=device, verbose=verbose)
-
     return ret
 
 
 def fit_flows(model, dataloader, n_epochs, lr, device='cpu', verbose=False):
     optimizer = torch.optim.Adam(model.parameters(), lr=lr, weight_decay=1e-4)
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=n_epochs, eta_min=1e-5)
+    data_iter = iter(dataloader)
 
-    losses = []
-    for epoch in range(n_epochs):
-        epoch_losses = []
-        progressbar = tqdm(enumerate(dataloader), total=len(dataloader))
-        for batch_n, (x_batch, y_batch, m_batch) in progressbar:
-            x_batch, y_batch, m_batch = x_batch.to(device), y_batch.to(device), m_batch.to(device)
+    loss_hist = np.array([])
+    model.train()
+    for i in tqdm(range(n_epochs)):
+        try:
+            x, y, m = next(data_iter)
+        except StopIteration:
+            data_iter = iter(dataloader)
+            x, y, m = next(data_iter)
+        optimizer.zero_grad()
+        loss = model.learning_loss(m.to(device), x.to(device), y.to(device))
 
-            optimizer.zero_grad()
-            loss = model.learning_loss(m_batch, x_batch, y_batch)
+        if ~(torch.isnan(loss) | torch.isinf(loss)):
+            loss.backward()
+            optimizer.step()
+            scheduler.step()
 
-            if ~(torch.isnan(loss) | torch.isinf(loss)):
-                loss.backward()
-                optimizer.step()
-
-            epoch_losses.append(loss.item())
-            progressbar.update()
-
-        progressbar.close()
-        avg_loss = sum(epoch_losses) / len(epoch_losses)
-        losses.append(avg_loss)
-
-        print('Train Epoch: {}/{} ({:.0f}%)\tLoss: {:.6f}'.format(
-            epoch, n_epochs,
-            100. * epoch / n_epochs,
-            avg_loss))
+        loss_hist = np.append(loss_hist, loss.detach().to('cpu').numpy())
 
     if verbose:
-        print(f"Final Loss: {losses[-1]:.4f}")
-        plt.figure(figsize=(10, 5))
-        plt.plot(losses)
-        plt.xlabel('Epoch')
+        print(f"Final Loss: {loss_hist[-1]:.4f}")
+        plt.figure(figsize=(5, 5))
+        plt.plot(loss_hist, label='loss')
+        plt.xlabel('Step')
         plt.ylabel('Loss')
         plt.title('Training Loss')
         plt.show()
@@ -61,6 +54,7 @@ def fit_flows(model, dataloader, n_epochs, lr, device='cpu', verbose=False):
 
 def fit_pid(model, dataloader, device='cpu', verbose=False, ret_t_sigt=False):
     z_mxy = []
+    model.eval()
     for x_batch, y_batch, m_batch in dataloader:
         x_batch, y_batch, m_batch = x_batch.to(device), y_batch.to(device), m_batch.to(device)
         with torch.no_grad():
@@ -69,7 +63,6 @@ def fit_pid(model, dataloader, device='cpu', verbose=False, ret_t_sigt=False):
 
     z_mxy = torch.cat(z_mxy, dim=0)
     cov = torch.cov(z_mxy.T).cpu().numpy()
-
     trained_cov = covariance_to_correlation(cov)
     ret = exact_gauss_thin_pid(trained_cov, model.dm, model.dx, model.dy, verbose=False, ret_t_sigt=ret_t_sigt)
 

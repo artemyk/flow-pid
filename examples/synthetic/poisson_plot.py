@@ -7,7 +7,7 @@ import seaborn as sns
 
 
 if __name__ == '__main__':
-    pid_table = pd.read_csv('../results/multi_poisson_sample1000.csv')
+    pid_table = pd.read_csv('../results/multi_poisson.csv')
 
     suptitlesize = 20
     titlesize = 18
@@ -15,16 +15,16 @@ if __name__ == '__main__':
     legendsize = 14
     ticksize = 12
 
-    w1 = pid_table['w1'][::5]
+    w1 = pid_table['w1'][::4]
     ri = pid_table['ri']
     si = pid_table['si']
     ux = pid_table['ux']
     uy = pid_table['uy']
     imxy = ri + si + ux + uy
 
-    pid_defns = ['tilde', 'delta', 'mmi', 'thin','gt']
-    linestyles = ['-.', '--', ':', '-', '']
-    markers = ['', '', '', '', 'o']
+    pid_defns = ['flow', 'tilde', 'mmi','gt']
+    linestyles = ['-', '--', ':', '']
+    markers = ['', '', '', 'o']
 
     pid_atoms = [imxy, ux, uy, ri, si]
     colors = ['k', 'C0', 'C1', 'C2', 'C3']
@@ -37,13 +37,10 @@ if __name__ == '__main__':
     lines = {}  # Dictionary to hold all line handles for legend
     for i, pid_defn in enumerate(pid_defns):
         for j, pid_atom in enumerate(pid_atoms):
-            line = ax.plot(w1, pid_atom[i::5],
+            line = ax.plot(w1, pid_atom[i::4],
                            color=colors[j], linestyle=linestyles[i],
                            marker=markers[i])[0]
             lines[(colors[j], linestyles[i], markers[i])] = line
-            if i==0 or i==1 or i==2:
-                if j==0:
-                    line.remove()
 
     fig.suptitle(r'PID values (left) and PID values normalized by $I(X_1,X_2;Y)$ (right)'
                  + '\nin a multivariate Poisson spike-count simulation', fontsize=titlesize)
@@ -60,7 +57,7 @@ if __name__ == '__main__':
     lines = {}  # Dictionary to hold all line handles for legend
     for i, pid_defn in enumerate(pid_defns):
         for j, pid_atom in enumerate(pid_atoms):
-            line = ax.plot(w1, pid_atom[i::5] / imxy[i::5],
+            line = ax.plot(w1, pid_atom[i::4] / imxy[i::4],
                     color=colors[j], linestyle=linestyles[i], marker=markers[i])[0]
             lines[(colors[j], linestyles[i], markers[i])] = line
             if j == 0:
@@ -92,6 +89,6 @@ if __name__ == '__main__':
 
     plt.tight_layout()
     plt.subplots_adjust(left=0.07, right=0.8, bottom=0.12, top=0.85, wspace=0.25)
-    plt.savefig('../plots/mult-poisson_10000.pdf')
+    plt.savefig('../plots/mult-poisson_100000.pdf')
     # plt.show()
 

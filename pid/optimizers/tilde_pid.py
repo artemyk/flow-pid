@@ -130,7 +130,7 @@ def pinv(a):
     return B
 
 
-def exact_tilde_union_info_minimizer(hx, hy, plot=False, ret_obj=False, reg=1e-7):
+def exact_tilde_union_info_minimizer(hx, hy, plot=False, ret_obj=False, reg=1e-7, verbose=False):
     dx, dm = hx.shape
     dy, dm_ = hy.shape
     if dm != dm_:
@@ -167,6 +167,8 @@ def exact_tilde_union_info_minimizer(hx, hy, plot=False, ret_obj=False, reg=1e-7
         running_eta = []
     i = 1
     extra = 0
+
+    obj_hist = np.array([])
     while True:
         # Evaluate the objective
         obj = objective(sig, hx, hy, dm, dx, dy, reg)
@@ -224,6 +226,9 @@ def exact_tilde_union_info_minimizer(hx, hy, plot=False, ret_obj=False, reg=1e-7
             running_sig_post_proj.append(sig_proj)
 
         sig[:, :] = sig_proj
+
+        if verbose:
+            obj_hist = np.append(obj_hist, obj)
 
     if plot:
         running_sig_pre_proj = np.array(running_sig_pre_proj).squeeze()
@@ -328,7 +333,7 @@ def exact_tilde_union_info_minimizer(hx, hy, plot=False, ret_obj=False, reg=1e-7
     sig, obj = minima
 
     if ret_obj:
-        return sig, obj, i
+        return sig, obj, i, obj_hist
     return sig
 
 
@@ -388,7 +393,7 @@ def exact_gauss_tilde_pid(cov, dm, dx, dy, verbose=False, ret_t_sigt=False,
     debias_factor = imxy_debiased / imxy
 
     #sig = exact_tilde_union_info_minimizer(hx, hy, plot=plot)
-    sig, obj, _ = exact_tilde_union_info_minimizer(hx, hy, plot=plot, ret_obj=True, reg=reg)
+    sig, obj, _, obj_hist = exact_tilde_union_info_minimizer(hx, hy, plot=plot, ret_obj=True, reg=reg)
     covxy__m = np.block([[np.eye(dx), sig], [sig.T, np.eye(dy)]])
     #covxy = covxy__m + np.vstack((hx, hy)) @ np.vstack((hx, hy)).T
 
@@ -419,5 +424,8 @@ def exact_gauss_tilde_pid(cov, dm, dx, dy, verbose=False, ret_t_sigt=False,
     ret = (imx, imy, imxy_debiased, union_info, obj, uix, uiy, ri, si)
     if ret_t_sigt:
         ret = (*ret, None, None, None, sig)
+
+    if verbose:
+        return ret, obj_hist
 
     return ret

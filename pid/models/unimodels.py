@@ -8,6 +8,37 @@ from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
 from torchvision import models as tmodels
 
 
+class Linear(torch.nn.Module):
+    """Linear Layer with Xavier Initialization, and 0 Bias."""
+
+    def __init__(self, indim, outdim, xavier_init=False):
+        """Initialize Linear Layer w/ Xavier Init.
+
+        Args:
+            indim (int): Input Dimension
+            outdim (int): Output Dimension
+            xavier_init (bool, optional): Whether to apply Xavier Initialization to Layer. Defaults to False.
+
+        """
+        super(Linear, self).__init__()
+        self.fc = nn.Linear(indim, outdim)
+        if xavier_init:
+            nn.init.xavier_normal(self.fc.weight)
+            self.fc.bias.data.fill_(0.0)
+
+    def forward(self, x):
+        """Apply Linear Layer to Input.
+
+        Args:
+            x (torch.Tensor): Input Tensor
+
+        Returns:
+            torch.Tensor: Output Tensor
+
+        """
+        return self.fc(x)
+
+
 class MLP(torch.nn.Module):
     """Two layered perceptron."""
 
@@ -304,3 +335,22 @@ class TSDecoder(torch.nn.Module):
             next, hidden = self.gru(next, hidden)
             nexts.append(next.squeeze(0))
         return torch.cat(nexts, 1)
+
+
+class Identity(nn.Module):
+    """Identity Module."""
+
+    def __init__(self):
+        """Initialize Identity Module."""
+        super().__init__()
+
+    def forward(self, x):
+        """Apply Identity to Input.
+
+        Args:
+            x (torch.Tensor): Layer Input
+
+        Returns:
+            torch.Tensor: Layer Output
+        """
+        return x

@@ -57,7 +57,7 @@ def thin_project(sig_temp):  # project the matrix onto the PSD cone, but only ne
     return sig_proj, True
 
 
-def exact_thin_pid_minimizer(hx, hy, plot=False, ret_obj=False, reg=1e-7, max_iters=20000):
+def exact_thin_pid_minimizer(hx, hy, plot=False, ret_obj=False, reg=1e-7, max_iters=20000, verbose=False):
     dx, dm = hx.shape
     dy, dm_ = hy.shape
     if dm != dm_:
@@ -86,9 +86,15 @@ def exact_thin_pid_minimizer(hx, hy, plot=False, ret_obj=False, reg=1e-7, max_it
     extra = 0
 
     sig_temp = hx @ pinv(hy)
-    sig_temp_proj, _ = tilde_project(sig_temp)
+
+    try:
+        sig_temp_proj, _ = thin_project(sig_temp)
+    except npla.LinAlgError:
+        warnings.warn('Thin projection failed, falling back to tilde projection.')
+        sig_temp_proj, _ = tilde_project(sig_temp)
     sig = sig_temp_proj.copy()
 
+    obj_hist = np.array([])
     while True:
         # Evaluate the objective
         obj = objective(sig, hx, hy, dm, dx, dy, reg)
@@ -100,6 +106,7 @@ def exact_thin_pid_minimizer(hx, hy, plot=False, ret_obj=False, reg=1e-7, max_it
             if extra == 0:
                 if (np.abs(np.array(running_obj[-patience:]) - obj) < stop_threshold).all() or i >= max_iterations:
                     if i >= max_iterations:
+
                         warnings.warn('Exceeded maximum number of iterations. May not have converged.')
                     if extra_iters == 0: break
                     extra += 1
@@ -120,7 +127,12 @@ def exact_thin_pid_minimizer(hx, hy, plot=False, ret_obj=False, reg=1e-7, max_it
         # gradient descent
         sig_plus = sig - alpha ** i * eta_sig * g_sig
         # project sig back onto the PSD cone, but only need to work with the upper triangular part
-        sig_proj, _ = tilde_project(sig_plus)
+        # sig_proj, _ = tilde_project(sig_plus)
+        try:
+            sig_proj, _ = thin_project(sig_plus)
+        except npla.LinAlgError:
+            warnings.warn('Thin projection failed, falling back to tilde projection.')
+            sig_proj, _ = tilde_project(sig_plus)
 
         # Learning rate update
         if g_sig_prev is not None:
@@ -130,13 +142,16 @@ def exact_thin_pid_minimizer(hx, hy, plot=False, ret_obj=False, reg=1e-7, max_it
         g_sig_prev = g_sig
         sig[:, :] = sig_proj
 
+        if verbose:
+            obj_hist = np.append(obj_hist, obj)
+
     sig, obj = minima
 
     if swap:
         sig = sig.T
 
     if ret_obj:
-        return sig, obj, i
+        return sig, obj, i, obj_hist
     return sig
 
 
@@ -195,7 +210,7 @@ def exact_gauss_thin_pid(cov, dm, dx, dy, verbose=False, ret_t_sigt=False,
 
     debias_factor = imxy_debiased / imxy
 
-    sig, obj, _ = exact_thin_pid_minimizer(hx, hy, plot=plot, ret_obj=True, reg=reg)
+    sig, obj, _, obj_hist = exact_thin_pid_minimizer(hx, hy, plot=plot, ret_obj=True, reg=reg, verbose=verbose)
 
     union_info = objective(sig, hx, hy, dm, dx, dy, reg=reg)
     union_info *= debias_factor
@@ -215,5 +230,8 @@ def exact_gauss_thin_pid(cov, dm, dx, dy, verbose=False, ret_t_sigt=False,
     ret = (imx, imy, imxy_debiased, union_info, obj, uix, uiy, ri, si)
     if ret_t_sigt:
         ret = (*ret, None, None, None, sig)
+
+    if verbose:
+        return ret, obj_hist
 
     return ret

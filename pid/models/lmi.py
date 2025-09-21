@@ -3,6 +3,31 @@ import torch
 import torch.nn as nn
 
 
+class OrthogonalLinear(nn.Module):
+    def __init__(self, dim, latent_dim=None):
+        super().__init__()
+        if latent_dim is not None:
+            self.linear = nn.Linear(dim, latent_dim, bias=False)
+        else:
+            self.linear = nn.Linear(dim, dim, bias=False)
+        nn.init.orthogonal_(self.linear.weight)  # Initialize orthogonally
+        for param in self.linear.parameters():
+            param.requires_grad = False  # do not update the weights during training
+
+    def forward(self, x):
+        out = self.linear(x)
+        return out
+
+    def orthogonal_loss(self, alpha=1.0):
+        """
+        Compute the orthogonality loss for the linear layer.
+        This encourages the weight matrix to remain orthogonal.
+        """
+        weight = self.linear.weight
+        identity = torch.eye(weight.size(0), device=weight.device)
+        return torch.norm(weight @ weight.t() - identity, p='fro')
+
+
 class AEMINE(nn.Module):
 
     def __init__(self, x_dim, y_dim, m_dim, latent_size, alpha=1, lam=1):
@@ -15,9 +40,11 @@ class AEMINE(nn.Module):
         super(AEMINE, self).__init__()
 
         # choosing hidden layer sizes
-        # Lx = int(2**np.floor(np.log2(x_dim)))
-        # Ly = int(2**np.floor(np.log2(y_dim)))
         Lx, Ly = 1024, 1024
+        if x_dim > 2048:
+            Lx = int(2 ** np.floor(np.log2(x_dim)))
+        if y_dim > 2048:
+            Ly = int(2 ** np.floor(np.log2(y_dim)))
 
         self.x_encoder = nn.Sequential(nn.Linear(x_dim, Lx),
                                        nn.LeakyReLU(negative_slope=0.2),
@@ -61,6 +88,7 @@ class AEMINE(nn.Module):
 
         self.alpha = alpha
         self.lam = lam
+        self.latent_size = latent_size
 
         def init_weights(m):
             if isinstance(m, nn.Linear):
@@ -70,6 +98,13 @@ class AEMINE(nn.Module):
         for net in [self.x_encoder, self.y_encoder, self.xx_decoder, self.yy_decoder,
                     self.T_func]:
             net.apply(init_weights)
+
+    def forward(self, x_samples, y_samples):
+        """
+        Forward pass to encode x_samples and y_samples into latent representations.
+        """
+        Zx, Zy = self.encode(x_samples, y_samples)
+        return Zx, Zy
 
     def encode(self, x_samples, y_samples):
         Zx = self.x_encoder(x_samples)
@@ -98,7 +133,6 @@ class AEMINE(nn.Module):
         return torch.nn.functional.mse_loss(hat, samples, reduction='mean')
 
     def learning_loss(self, x_samples, y_samples, m_samples):
-
         Zx, Zy = self.encode(x_samples, y_samples)
         Xh, Yh = self.decode(Zx, Zy)
 

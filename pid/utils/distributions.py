@@ -8,7 +8,6 @@ import torch.nn as nn
 from normflows.distributions.base import BaseDistribution
 
 
-## Full rank Gaussian distribution
 class MultivariateGaussian(BaseDistribution):
     def __init__(self, dim):
         super().__init__()
@@ -45,6 +44,91 @@ class MultivariateGaussian(BaseDistribution):
                 - 0.5 * torch.det(Sig)
                 - 0.5 * torch.sum(z_ * torch.matmul(z_, torch.inverse(Sig)), 1)
         )
+        return log_p
+
+
+class GaussianBC(BaseDistribution):
+    """
+    Gaussian distribution resulting from random binary channel
+    X = H_x * M + N_x
+    Y = H_y * M + N_y
+
+    where M is a random variable with Gaussian distribution, H_x and H_y are
+    channel matrices, and N_x and N_y are Gaussian noise variables.
+    """
+
+    def __init__(self, dm, dx, dy, sigma=0.1):
+        """Constructor
+
+        Args:
+          dm, dx, dy: Number of dimensions of the flow variables
+          sigma: Noise level
+        """
+        super().__init__()
+
+        self.dm = dm
+        self.dx = dx
+        self.dy = dy
+        self.dim = dm + dx + dy
+
+        self.loc = nn.Parameter(torch.zeros(1, dm))
+        self.log_scale = nn.Parameter(torch.zeros(1, dm))
+
+        self.Hx = nn.Parameter(torch.randn(dm, dx))
+        self.Hy = nn.Parameter(torch.randn(dm, dy))
+        self.log_sigma_x = nn.Parameter(torch.tensor(np.log(sigma)))
+        self.log_sigma_y = nn.Parameter(torch.tensor(np.log(sigma)))
+
+    def _get_sig(self, detach=False):
+        sigm = torch.exp(self.log_scale) * torch.eye(self.dm, dtype=self.loc.dtype, device=self.loc.device)
+        sigx_m = torch.exp(self.log_sigma_x) * torch.eye(self.dx, dtype=self.loc.dtype, device=self.loc.device)
+        sigy_m = torch.exp(self.log_sigma_y) * torch.eye(self.dy, dtype=torch.float, device=self.loc.device)
+
+        block1 = torch.cat([sigm, sigm @ self.Hx, sigm @ self.Hy], dim=1)
+        block2 = torch.cat([self.Hx.T @ sigm, self.Hx.T @ sigm @ self.Hx + sigx_m, self.Hx.T @ sigm @ self.Hy], dim=1)
+        block3 = torch.cat([self.Hy.T @ sigm, self.Hy.T @ sigm @ self.Hx, self.Hy.T @ sigm @ self.Hy + sigy_m], dim=1)
+        Sig = torch.cat([block1, block2, block3], dim=0)
+
+        if detach:
+            return Sig.detach().cpu().numpy()
+        else:
+            return Sig
+
+    def forward(self, num_samples=1):
+        eps_m = torch.randn(
+            num_samples, self.dm, dtype=self.loc.dtype, device=self.loc.device
+        )
+        m_ = eps_m * torch.exp(self.log_scale)
+        m = m_ + self.loc
+        x_ = eps_m @ self.Hx
+        x = x_ + self.loc @ self.Hx
+        y_ = eps_m @ self.Hy
+        y = y_ + self.loc @ self.Hy
+        mxy = torch.cat([m, x, y], dim=-1)
+
+        Sig = self._get_sig()
+        z_ = torch.cat([m_, x_, y_], dim=-1)
+        log_p = (
+            self.dim / 2 * np.log(2 * np.pi)
+            - 0.5 * torch.det(Sig)
+            - 0.5 * torch.sum(z_ * torch.matmul(z_, torch.inverse(Sig)), 1)
+        )
+
+        return mxy, log_p
+
+    def log_prob(self, z):
+        loc_x = self.loc @ self.Hx
+        loc_y = self.loc @ self.Hy
+        loc = torch.cat([self.loc, loc_x, loc_y], dim=1)
+        z_ = z - loc
+
+        Sig = self._get_sig()
+        log_p = (
+            self.dim / 2 * np.log(2 * np.pi)
+            - 0.5 * torch.det(Sig)
+            - 0.5 * torch.sum(z_ * torch.matmul(z_, torch.inverse(Sig)), 1)
+        )
+
         return log_p
 
 

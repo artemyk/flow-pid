@@ -136,19 +136,6 @@ def compute_qstar_admui(p, M_dim, lamdas, ind=1, maxiter=250, verbose=False):
     return qstar
 
 
-def gt_pid(lamda_m, w_x, w_y, lamda_x, lamda_y, D):
-    p = mult_poisson_dist(lamda_m, w_x, w_y, lamda_x, lamda_y, D=D)
-    D = p.shape[0]
-    # Compute Bertschinger's PID using the Banerjee et al. package
-    p = p.reshape((D**2, D, D))
-    qstar = compute_qstar_admui(p, p.shape[0], [], maxiter=10000)
-    uix, ri, si, imxy = pid(p, qstar)  # UI corresponds to X
-    uiy = imxy - uix - ri - si
-
-    ret = (imxy, imxy, uix, uiy, ri, si)
-    return ret
-
-
 def standardize_data(data):
     # standardize data along columns
     return (data - data.mean(dim=0, keepdim=True)) / data.std(dim=0, keepdim=True)
@@ -166,17 +153,18 @@ if __name__ == '__main__':
     dx = lamda_x.size
     dy = lamda_y.size
 
-    n = 100000  # Sample size
+    n = 1000000  # Sample size
+    D = 10  # supports of distribution in each dimension
 
-    log_f_name = '../results/multi_poisson_sample' + str(n) + '.csv'
+    log_f_name = '../results/multi_poisson_' + str(n) + '.csv'
     print("logging at : " + log_f_name)
     # logging file
     log_f = open(log_f_name, "w+")
     log_f.write('w1,id,ux,uy,ri,si\n')
 
-    ## 0: tilde, 1: delta, 2: mmi, 3: flow, 4: gt
-    pid_ids = [0, 1, 2]
-    pid_bench_names = ['tilde', 'delta', 'mmi']
+    ## 0: flow, 1: tilde, 2: mmi, 3: gt
+    pid_ids = [1, 2]
+    pid_bench_names = ['tilde', 'delta']
     pid_benchmarks = [exact_gauss_tilde_pid, approx_pid_from_cov, mmi_pid]
 
     for i, w_x1 in enumerate(w_x1_vals):
@@ -191,6 +179,30 @@ if __name__ == '__main__':
         mxy = np.vstack((m, x, y))
         cov = np.corrcoef(mxy)  # Shape: (dm+dx+dy, dm+dx+dy)
 
+        ## flow pid
+        m_standardized = standardize_data(torch.tensor(m.T, dtype=torch.float32))
+        x_standardized = standardize_data(torch.tensor(x.T, dtype=torch.float32))
+        y_standardized = standardize_data(torch.tensor(y.T, dtype=torch.float32))
+        dataset = TensorDataset(x_standardized, y_standardized, m_standardized)
+        dataloader = DataLoader(dataset, batch_size=512, shuffle=True)
+
+        model = CartesianProductFlow(
+            dm=dm,
+            dx=dx,
+            dy=dy,
+            n_flows=6,
+        ).to(device)
+
+        ret = flow_pid.fit(model, dataloader, n_epochs=5000, lr=5e-4, device=device, verbose=False)
+        ux, uy, r, si = ret[5], ret[6], ret[7], ret[8]
+
+        log_f.write('{},{},{},{},{},{}\n'.format(w_x1, 0, ux, uy, r, si))
+        log_f.flush()
+        print(
+            f"pid name: flow-pid, "
+            f"R: {r}, UX: {ux}, UY: {uy}, S: {si}"
+        )
+
         ## tilde, delta, mmi pid
         for pid_id, pid_name, pid_defn in zip(pid_ids, pid_bench_names, pid_benchmarks):
 
@@ -200,40 +212,24 @@ if __name__ == '__main__':
             log_f.write('{},{},{},{},{},{}\n'.format(w_x1, pid_id, ux, uy, r, si))
             log_f.flush()
             print(
-                f"pid name: {pid_name}, normalized I_mxy, "
+                f"pid name: {pid_name}, "
                 f"R: {r}, UX: {ux}, UY: {uy}, S: {si}"
             )
-
-        ## flow pid ##
-        m_data_standardized = standardize_data(torch.tensor(m.T, dtype=torch.float32))
-        x_data_standardized = standardize_data(torch.tensor(x.T, dtype=torch.float32))
-        y_data_standardized = standardize_data(torch.tensor(y.T, dtype=torch.float32))
-        dataset = TensorDataset(x_data_standardized, y_data_standardized, m_data_standardized)
-        dataloader = DataLoader(dataset, batch_size=1000, shuffle=True)
-
-        model = CartesianProductFlow(
-            dm=dm,
-            dx=dx,
-            dy=dy,
-            q0=nf.distributions.base.DiagGaussian,
-            n_flows=2,
-        ).to(device)
-
-        ret = flow_pid.fit(model, dataloader, epochs=500, lr=1e-3, device=device, verbose=False)
-        ux, uy, r, si = ret[5], ret[6], ret[7], ret[8]
-
-        log_f.write('{},{},{},{},{},{}\n'.format(w_x1, 3, ux, uy, r, si))
-        log_f.flush()
-        print(f"flow pid, normalized I_mxy, R: {r}, UX: {ux}, UY: {uy}, S: {si}")
 
         ## ground truth (time-consuming) ##
         gt = True
         if gt:
-            ret = gt_pid(lamda_m, w_x, w_y, lamda_x, lamda_y, D=10)
-            imxy, uix, uiy, ri, si = ret[2], *ret[-4:]
-            log_f.write('{},{},{},{},{},{}\n'.format(w_x1, 4, ux, uy, r, si))
+            p = mult_poisson_dist(lamda_m, w_x, w_y, lamda_x, lamda_y, D=D)
+            D = p.shape[0]
+            # Compute Bertschinger's PID using the Banerjee et al. package
+            p = p.reshape((D ** 2, D, D))
+            qstar = compute_qstar_admui(p, p.shape[0], [], maxiter=500)
+            uix, ri, si, imxy = pid(p, qstar)  # UI corresponds to X
+            uiy = imxy - uix - ri - si
+
+            log_f.write('{},{},{},{},{},{}\n'.format(w_x1, 3, uix, uiy, ri, si))
             log_f.flush()
-            print(f"truth: R: {ri}, UX: {uix}, UY: {uiy}, S: {si}")
+            print(f"ground truth: R: {ri}, UX: {uix}, UY: {uiy}, S: {si}")
 
     log_f.close()
     print("done")

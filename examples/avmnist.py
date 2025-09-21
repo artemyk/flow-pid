@@ -3,9 +3,11 @@ import torch
 import torch.nn as nn
 from torch.utils.data import TensorDataset, DataLoader
 
-from pid.models.fusions import Concat
-from pid.models.unimodels import LeNet, MLP
-from pid.optimizers.supervised_learning import train, single_test
+from pid.models.fusions import Concat, Sequential2, AdditiveEnsemble, LowRankTensorFusion
+from pid.objective_functions.objectives_for_supervised_learning import MFM_objective
+from pid.models.unimodels import LeNet, MLP, Linear
+from pid.optimizers.supervised_learning import train, test
+# from ensemble import train, test  # noqa
 from pid.optimizers.flow_pid import flow_pid
 
 
@@ -30,6 +32,8 @@ def prepare_data(data_dir, flatten_audio=False, flatten_image=False,
         x_data = np.expand_dims(x_data, 1)
         y_data = np.expand_dims(y_data, 1)
     m_data = m_data.astype(int)
+
+    print(f"Data shape: x_data: {x_data.shape}, y_data: {y_data.shape}, m_data: {m_data.shape}")
 
     return x_data, y_data, m_data
 
@@ -136,7 +140,7 @@ def train_encoders(nepochs=30, lr=0.1, weight_decay=0.0001):
 
     traindata, validdata, testdata = get_dataloader('./data/avmnist', batch_size=64, num_workers=2)
     model = torch.load('best.pt', weights_only=False)
-    single_test(model, testdata)
+    test(model, testdata)
 
 
 def learn_features_from_encoder(x_data, y_data, batch_size=1000, encoder_path=None, device=torch.device('cpu')):
@@ -182,27 +186,64 @@ if __name__ == '__main__':
     ## train encoders if necessary
     # train_encoders(nepochs=30, lr=0.1, weight_decay=0.0001)
 
+    def EncourageAgreement(ce_weight=2, agree_weight=1, criterion=torch.nn.CrossEntropyLoss()):
+        def _actualfunc(pred, truth, args):
+            ce_loss = criterion(pred, truth)
+            outs = args['outs']
+            agree_loss = np.linalg.norm(outs[1].cpu().detach().numpy() - outs[0].cpu().detach().numpy() )
+            return agree_loss * agree_weight + ce_weight * ce_loss
+        return _actualfunc
+
+    def EncourageAlignment(ce_weight=2, align_weight=1, criterion=torch.nn.CrossEntropyLoss()):
+        def _actualfunc(pred, truth, args):
+            ce_loss = criterion(pred, truth)
+            outs = args['outs']
+            outs[0] = outs[0].view(-1, ).cpu().detach().numpy()
+            outs[1] = outs[1].view(-1, ).cpu().detach().numpy()
+            align_loss = np.dot(outs[0], outs[1]) / (np.linalg.norm(outs[0]) * np.linalg.norm(outs[1]))
+            return align_loss * align_weight + ce_loss * ce_weight
+
+        return _actualfunc
+
     enable_cuda = True
     device = torch.device('cuda' if torch.cuda.is_available() and enable_cuda else 'cpu')
     print(f"Using device: {device}")
 
-    x_data, y_data, m_data = prepare_data('./data/avmnist')
+    nepochs = 20
+    lr = 1e-4
+    weight_decay = 0.0001
+    modalities = [0,1]
+    in_dim = [48, 192]
+    traindata, validdata, testdata = get_dataloader('./data/avmnist', batch_size=64, num_workers=2)
+    encoders = [LeNet(1, 6, 3).to(device), LeNet(1, 6, 5).to(device)]
+    head = MLP(240, 512, 10).to(device)
+    fusion = LowRankTensorFusion(in_dim, 240, 32).to(device)
 
-    x_features, y_features = learn_features_from_encoder(x_data, y_data, batch_size=1000, encoder_path='./pretrained/avmnist/av_encoder.pt', device=device)
-    scale = 1/11.0
-    eps = np.random.rand(m_data.shape[0], 1) * scale
-    m_features = m_data.reshape(-1, 1)
+    train(encoders, fusion, head, traindata, validdata, nepochs, optimtype=torch.optim.AdamW, is_packed=False,
+          lr=lr, save='best.pt', weight_decay=weight_decay, objective=torch.nn.CrossEntropyLoss(),
+          early_stop=True)
+    model = torch.load('best.pt', weights_only=False)
+    test(model, testdata, no_robust=True, criterion=torch.nn.CrossEntropyLoss(), task='classification')
 
-    encoders = [LeNet(1, 6, 3), LeNet(1, 6, 5)]
-    feature_extractor = FeatureExtractor(encoders)
 
-    ret = flow_pid(m_features, x_features, y_features,
-                   n_flows=5, n_epochs=100, batch_size=1000, lr=1e-4,
-                   encoder=None, verbose=True, device=device)
-    norm = ret[7] + ret[5] + ret[6] + ret[8]
-    r, ux, uy, si = ret[7] / norm, ret[5] / norm, ret[6] / norm, ret[8] / norm
-    print(f"flow pid, unnorm I_mxy, R: {ret[7]}, UX: {ret[5]}, UY: {ret[6]}, S: {ret[8]}")
-    print(f"flow pid, normalized I_mxy, R: {r}, UX: {ux}, UY: {uy}, S: {si}")
+    #
+    # x_data, y_data, m_data = prepare_data('./data/avmnist')
+    #
+    # x_features, y_features = learn_features_from_encoder(x_data, y_data, batch_size=1000, encoder_path='./pretrained/avmnist/av_encoder.pt', device=device)
+    # scale = 1/11.0
+    # eps = np.random.rand(m_data.shape[0], 1) * scale
+    # m_features = m_data.reshape(-1, 1)
+    #
+    # encoders = [LeNet(1, 6, 3), LeNet(1, 6, 5)]
+    # feature_extractor = FeatureExtractor(encoders)
+    #
+    # ret = flow_pid(m_features, x_features, y_features,
+    #                n_flows=5, n_epochs=100, batch_size=1000, lr=1e-4,
+    #                encoder=None, verbose=True, device=device)
+    # norm = ret[7] + ret[5] + ret[6] + ret[8]
+    # r, ux, uy, si = ret[7] / norm, ret[5] / norm, ret[6] / norm, ret[8] / norm
+    # print(f"flow pid, unnorm I_mxy, R: {ret[7]}, UX: {ret[5]}, UY: {ret[6]}, S: {ret[8]}")
+    # print(f"flow pid, normalized I_mxy, R: {r}, UX: {ux}, UY: {uy}, S: {si}")
 
 
 
