@@ -1,6 +1,6 @@
 # Partial Information Decomposition
 
-This repository contains the code for the follow paper on partial information decomposition.
+This repository contains the code for the following paper on partial information decomposition (PID).
 
 [**Partial Information Decomposition via Normalizing Flows in Latent Gaussian Distributions**](https://arxiv.org/abs/2510.04417)<br>
 Wenyuan Zhao, Adithya Balachandran, Chao Tian, Paul Pu Liang<br>
@@ -23,8 +23,8 @@ To install the repository, first clone the repository via Git, and then install 
 conda env create [-n ENVNAME] -f environment.yml
 ```
 
-### PID Estimator
-#### GPID solvers
+### PID Estimators
+#### Gaussian PID solvers
 1. Thin-PID: `exact_gauss_thin_pid` in `pid/thin_pid.py`
 2. Tilde-PID: `exact_gauss_tilde_pid` in `pid/tilde_pid.py`
 3. MMI-PID: `mmi_pid` in `pid/mmi_pid.py`
