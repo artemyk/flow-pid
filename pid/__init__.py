@@ -1,11 +1,10 @@
-#! /usr/bin/env python
-# -*- coding: utf-8 -*-
+from . import (
+    flow_pid,
+    thin_pid,
+    tilde_pid,
+    supervised_learning
+)
 
-from . import optimizers
-from . import models
-from . import utils
-
-from .utils import distributions, generate, estimate
-from .models import flows
-
-__version__ = "0.1.0"
+from .thin_pid import exact_thin_pid_minimizer, exact_gauss_thin_pid
+from .tilde_pid import exact_tilde_union_info_minimizer, exact_gauss_tilde_pid
+from .mmi_pid import mmi_pid

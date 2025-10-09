@@ -1,0 +1,36 @@
+# requirements.txt for pip-based installs (alternative to environment.yml)
+# NOTE: Replace the `torch` line with the appropriate CPU/CUDA build from https://pytorch.org/get-started/locally/
+
+numpy>=1.24
+scipy>=1.10
+pandas>=1.5
+scikit-learn>=1.2
+matplotlib>=3.7
+seaborn>=0.12
+pillow>=9.0
+tqdm
+jupyterlab
+ipykernel
+notebook
+scikit-image
+optuna
+plotly
+normflows
+memory_profiler
+cvxpy
+
+# PyTorch (pick correct wheel for your platform / CUDA):
+# Example (CPU-only):
+# torch==2.2.0+cpu
+# torchvision==0.17.0+cpu
+# torchaudio==2.2.0+cpu
+# If you have CUDA 11.8, you might use wheels from the PyTorch website, e.g.:
+# torch==2.2.0+cu118
+# torchvision==0.17.0+cu118
+# torchaudio==2.2.0
+
+# Default placeholders (install manually using pip or follow the conda instructions):
+torch
+torchvision
+torchaudio
+tensorboard

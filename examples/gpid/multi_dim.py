@@ -1,7 +1,7 @@
 import numpy as np
 import pandas as pd
-from pid.utils.generate import generate_cov_from_config, random_rotation_mxy, merge_covs
-from pid.optimizers import exact_gauss_tilde_pid, exact_gauss_thin_pid, flow_pid
+from utils.generate import generate_cov_from_config, random_rotation_mxy, merge_covs
+from pid import exact_gauss_tilde_pid, exact_gauss_thin_pid, flow_pid
 
 
 if __name__ == '__main__':

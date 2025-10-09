@@ -1,0 +1,38 @@
+# Conda environment for the flow-pid project
+# Assumptions:
+# - Python 3.11 (change `python=` line if you prefer 3.10/3.9)
+# - Torch (CPU vs CUDA) must be chosen by the user. See the notes below.
+
+name: flow-pid-env
+channels:
+  - defaults
+  - conda-forge
+  - pytorch
+dependencies:
+  - python=3.11
+  - pip
+  - numpy>=1.24
+  - scipy>=1.10
+  - pandas>=1.5
+  - scikit-learn>=1.2
+  - matplotlib>=3.7
+  - seaborn>=0.12
+  - pillow>=9.0
+  - tqdm
+  - jupyterlab
+  - ipykernel
+  - notebook
+  - scikit-image
+  - pip:
+    # torch and related packages are listed under pip so you can pick the correct wheel
+    # Replace these with the specific CUDA/CPU build you need. Examples are below in README notes.
+    - torch
+    - torchvision
+    - torchaudio
+    - tensorboard
+    - optuna
+    - plotly
+    - tqdm
+    - normflows
+    - memory_profiler
+    - cvxpy

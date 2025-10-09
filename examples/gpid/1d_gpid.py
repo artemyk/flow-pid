@@ -1,7 +1,10 @@
+# Partially borrowed from Venkatsh's paper at https://github.com/praveenv253/gpid
+# included here as reference
+
 import numpy as np
 import pandas as pd
 
-from pid.optimizers import exact_gauss_tilde_pid, mmi_pid, exact_gauss_thin_pid
+from pid import exact_gauss_tilde_pid, mmi_pid, exact_gauss_thin_pid
 
 
 if __name__ == '__main__':
