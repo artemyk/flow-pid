@@ -126,10 +126,10 @@ def train_flow(m_data, x_data, y_data, n_flows, n_epochs=100, batch_size=64, lr=
             
             # Forward pass
             m_features, x_features, y_features = encoder(m_batch, x_batch, y_batch) if encoder is not None else (m_batch, x_batch, y_batch)
-            z_m, z_x, z_y, log_det = flow(m_features, x_features, y_features)
+            # z_m, z_x, z_y, log_det = flow(m_features, x_features, y_features)
             
             # Compute loss
-            loss = flow.compute_loss(z_m, z_x, z_y, log_det)
+            loss = flow.learning_loss(m_features, x_features, y_features)
             
             # Backward pass
             loss.backward()
@@ -155,7 +155,7 @@ def train_flow(m_data, x_data, y_data, n_flows, n_epochs=100, batch_size=64, lr=
         x_batch, y_batch, m_batch = x_batch.to(device), y_batch.to(device), m_batch.to(device)
         with torch.no_grad():
             m_batch, x_batch, y_batch = encoder(m_batch, x_batch, y_batch) if encoder is not None else (m_batch, x_batch, y_batch)
-            z_m, z_x, z_y, log_det = flow(m_batch, x_batch, y_batch)
+            z_m, z_x, z_y = flow(m_batch, x_batch, y_batch)
             z_combined.append(torch.cat([z_m, z_x, z_y], dim=-1))
     z_combined = torch.cat(z_combined, dim=0)
     cov = torch.cov(z_combined.T).cpu().numpy()

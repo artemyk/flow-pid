@@ -188,7 +188,7 @@ if __name__ == '__main__':
 
     x_data, y_data, m_data = prepare_data('./data/avmnist')
 
-    x_features, y_features = learn_features_from_encoder(x_data, y_data, batch_size=1000, encoder_path='./pretrained/avmnist/av_encoder.pt', device=device)
+    x_features, y_features = learn_features_from_encoder(x_data, y_data, batch_size=1000, encoder_path='./best.pt', device=device)
     scale = 1/11.0
     eps = np.random.rand(m_data.shape[0], 1) * scale
     m_features = m_data.reshape(-1, 1)
@@ -197,7 +197,7 @@ if __name__ == '__main__':
     feature_extractor = FeatureExtractor(encoders)
 
     ret = flow_pid(m_features, x_features, y_features,
-                   n_flows=5, n_epochs=100, batch_size=1000, lr=1e-4,
+                   n_flows=3, n_epochs=10, batch_size=1000, lr=1e-4,
                    encoder=None, verbose=True, device=device)
     norm = ret[7] + ret[5] + ret[6] + ret[8]
     r, ux, uy, si = ret[7] / norm, ret[5] / norm, ret[6] / norm, ret[8] / norm
