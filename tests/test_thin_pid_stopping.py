@@ -37,6 +37,7 @@ def channels():
 
 def test_target_accepts_initial_objective_without_update(thin, channels, monkeypatch):
     monkeypatch.setattr(thin, 'objective', lambda *args: 2.0)
+    monkeypatch.setattr(thin, '_feasible_objective', lambda *args: 2.0)
     def unexpected(*args):
         pytest.fail('target reached: no gradient step should run')
     monkeypatch.setattr(thin, 'gradient', unexpected)
@@ -47,6 +48,7 @@ def test_target_accepts_initial_objective_without_update(thin, channels, monkeyp
 
 
 def test_target_after_updates_and_swap(thin, monkeypatch):
+    monkeypatch.setattr(thin, '_feasible_objective', lambda *args: 1.0)
     values = iter([3.0, 2.0, 1.0])
     monkeypatch.setattr(thin, 'objective', lambda *args: next(values))
     sig, obj, iterations, _ = thin.exact_thin_pid_minimizer(
@@ -58,6 +60,7 @@ def test_target_after_updates_and_swap(thin, monkeypatch):
 
 
 def test_native_stopping_can_be_disabled(thin, channels, monkeypatch):
+    monkeypatch.setattr(thin, '_feasible_objective', lambda *args: 1.0)
     def run(native):
         values = iter([2.0] * 25 + [1.0])
         monkeypatch.setattr(thin, 'objective', lambda *args: next(values))
@@ -122,3 +125,27 @@ def test_covariance_wrapper_forwards_options(thin, monkeypatch):
     assert received['objective_target'] == 0.5
     assert received['native_stopping'] is False
     assert received['timeout'] == 2.0
+
+
+@pytest.mark.parametrize('sig', [1.0, 1.01])
+def test_target_recheck_rejects_singular_or_indefinite_noise(thin, channels, sig):
+    assert np.isinf(thin._feasible_objective(np.array([[sig]]), *channels))
+
+
+def test_invalid_target_hit_keeps_iterating(thin, channels, monkeypatch):
+    monkeypatch.setattr(thin, 'thin_project', lambda sig: (np.ones_like(sig), True))
+    monkeypatch.setattr(thin, 'objective', lambda *args: -1.0)
+    class Continued(Exception):
+        pass
+    def gradient(*args):
+        raise Continued()
+    monkeypatch.setattr(thin, 'gradient', gradient)
+    with pytest.raises(Continued):
+        thin.exact_thin_pid_minimizer(*channels, objective_target=0.0,
+                                     native_stopping=False)
+
+
+def test_feasible_target_recheck_matches_direct_information(thin, channels):
+    sig = np.array([[0.1]])
+    expected = thin.objective(sig, *channels, 1, 1, 1, 1e-7)
+    assert thin._feasible_objective(sig, *channels) == pytest.approx(expected, abs=1e-12)

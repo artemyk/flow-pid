@@ -34,7 +34,9 @@ conda env create [-n ENVNAME] -f environment.yml
 Both `exact_thin_pid_minimizer` and `exact_gauss_thin_pid` accept:
 
 - `objective_target=None`: stop when the union objective is at most this
-  threshold, in **bits** (before debiasing or clipping).
+  threshold, in **bits** (before debiasing or clipping). Target hits are
+  verified with a positive-definite noise covariance and a stable objective
+  recheck; a singular or infeasible iterate cannot trigger target stopping.
 - `native_stopping=True`: set to `False` to disable the original stagnation
   rule when measuring time to an objective target. The iteration cap still applies.
 - `timeout=None`: a positive minimizer time limit in seconds. Expiry raises

@@ -58,12 +58,28 @@ def thin_project(sig_temp):  # project the matrix onto the PSD cone, but only ne
     return sig_proj, True
 
 
+def _feasible_objective(sig, hx, hy):
+    """Recheck a proposed target hit using a positive-definite noise covariance."""
+    dx, dy = sig.shape
+    noise = np.block([[np.eye(dx), sig], [sig.T, np.eye(dy)]])
+    try:
+        chol = la.cholesky(noise, lower=True, check_finite=False)
+        channel = la.solve_triangular(chol, np.concatenate((hx, hy), axis=0),
+                                      lower=True, check_finite=False)
+        gram = la.cholesky(np.eye(hx.shape[1]) + channel.T @ channel,
+                           lower=True, check_finite=False)
+        return np.log(np.diag(gram)).sum() / np.log(2)
+    except npla.LinAlgError:
+        return np.inf
+
+
 def exact_thin_pid_minimizer(hx, hy, plot=False, ret_obj=False, reg=1e-7, max_iters=20000, verbose=False,
                              objective_target=None, native_stopping=True, timeout=None):
     """Thin-PID RProp minimizer.
 
     Added (fork): ``objective_target`` stops as soon as the objective (bits) is
-    <= this value, e.g. a certified upper bound from another solver. With
+    <= this value and a positive-definite noise covariance recheck confirms
+    the hit, e.g. a certified upper bound from another solver. With
     ``native_stopping=False`` the original stagnation rule is disabled, so the
     run ends only at ``objective_target``, ``max_iters``, or ``timeout``.
     ``timeout`` is a positive time limit in seconds for this minimizer,
@@ -131,7 +147,11 @@ def exact_thin_pid_minimizer(hx, hy, plot=False, ret_obj=False, reg=1e-7, max_it
             minima = (sig.copy(), obj)
 
         if objective_target is not None and obj <= objective_target:
-            break
+            checked = _feasible_objective(sig, hx, hy)
+            check_timeout()
+            if np.isfinite(checked) and checked <= objective_target:
+                minima = (sig.copy(), checked)
+                break
 
         if len(running_obj) >= patience:
             if extra == 0:
