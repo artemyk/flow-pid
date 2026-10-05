@@ -29,6 +29,34 @@ conda env create [-n ENVNAME] -f environment.yml
 2. Tilde-PID: `exact_gauss_tilde_pid` in `pid/tilde_pid.py`
 3. MMI-PID: `mmi_pid` in `pid/mmi_pid.py`
 
+#### Thin-PID stopping controls (this fork)
+
+Both `exact_thin_pid_minimizer` and `exact_gauss_thin_pid` accept:
+
+- `objective_target=None`: stop when the union objective is at most this
+  threshold, in **bits** (before debiasing or clipping).
+- `native_stopping=True`: set to `False` to disable the original stagnation
+  rule when measuring time to an objective target. The iteration cap still applies.
+- `timeout=None`: a positive minimizer time limit in seconds. Expiry raises
+  `TimeoutError`, rather than returning an unconverged PID as a successful run.
+
+```python
+sig, value, iterations, history = exact_thin_pid_minimizer(
+    hx, hy, ret_obj=True, objective_target=target_bits,
+    native_stopping=False, timeout=100.0,
+)
+```
+
+The timeout includes minimizer initialization, but excludes the covariance
+wrapper's preprocessing and postprocessing. It is cooperative: checked between
+numerical operations, without interrupting an in-progress BLAS/LAPACK call.
+Use an external process watchdog if a strict wall-clock deadline is required.
+An objective target is a stopping threshold, not an optimality certificate;
+the original iteration-limit warning still applies if the target is not reached.
+Omitting these options retains the original stopping behavior and return format.
+
+Run the focused tests with `python -m pytest -q tests/test_thin_pid_stopping.py`.
+
 #### Generic PID solvers
 1. Flow-PID: `flow_pid` in `pid/flow_pid.py`
 2. CVX/BATCH: see [Quantifying & Modeling Multimodal Interactions](https://arxiv.org/abs/2302.12247)

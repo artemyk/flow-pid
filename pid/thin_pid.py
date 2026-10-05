@@ -3,6 +3,7 @@
 # os.environ['OPENBLAS_NUM_THREADS'] = '1'
 
 import warnings
+import time
 import numpy as np
 import scipy.linalg as la
 import numpy.linalg as npla
@@ -58,15 +59,30 @@ def thin_project(sig_temp):  # project the matrix onto the PSD cone, but only ne
 
 
 def exact_thin_pid_minimizer(hx, hy, plot=False, ret_obj=False, reg=1e-7, max_iters=20000, verbose=False,
-                             objective_target=None, native_stopping=True):
+                             objective_target=None, native_stopping=True, timeout=None):
     """Thin-PID RProp minimizer.
 
     Added (fork): ``objective_target`` stops as soon as the objective (bits) is
     <= this value, e.g. a certified upper bound from another solver. With
     ``native_stopping=False`` the original stagnation rule is disabled, so the
-    run ends only at ``objective_target`` or ``max_iters``. Defaults reproduce
-    upstream behavior exactly.
+    run ends only at ``objective_target``, ``max_iters``, or ``timeout``.
+    ``timeout`` is a positive time limit in seconds for this minimizer,
+    including initialization. Expiry raises TimeoutError. Checks occur
+    between numerical operations; an in-progress operation is not interrupted.
+    Defaults reproduce upstream behavior exactly.
     """
+    if objective_target is not None:
+        if not np.isscalar(objective_target) or not np.isfinite(objective_target):
+            raise ValueError('objective_target must be finite or None (in bits)')
+    if timeout is not None:
+        if not np.isscalar(timeout) or not np.isfinite(timeout) or timeout <= 0:
+            raise ValueError('timeout must be finite and positive, or None')
+    deadline = None if timeout is None else time.monotonic() + timeout
+
+    def check_timeout():
+        if deadline is not None and time.monotonic() >= deadline:
+            raise TimeoutError('Thin-PID minimizer exceeded timeout')
+
     dx, dm = hx.shape
     dy, dm_ = hy.shape
     if dm != dm_:
@@ -101,12 +117,15 @@ def exact_thin_pid_minimizer(hx, hy, plot=False, ret_obj=False, reg=1e-7, max_it
     except npla.LinAlgError:
         warnings.warn('Thin projection failed, falling back to tilde projection.')
         sig_temp_proj, _ = tilde_project(sig_temp)
+    check_timeout()
     sig = sig_temp_proj.copy()
 
     obj_hist = np.array([])
     while True:
+        check_timeout()
         # Evaluate the objective
         obj = objective(sig, hx, hy, dm, dx, dy, reg)
+        check_timeout()
 
         if minima is None or obj < min(running_obj):
             minima = (sig.copy(), obj)
@@ -135,6 +154,7 @@ def exact_thin_pid_minimizer(hx, hy, plot=False, ret_obj=False, reg=1e-7, max_it
         i += 1
 
         g_sig = gradient(sig, hx, hy, dm, dx, dy, reg)
+        check_timeout()
         g_sig = np.sign(g_sig).astype(int)
 
         # gradient descent
@@ -146,6 +166,7 @@ def exact_thin_pid_minimizer(hx, hy, plot=False, ret_obj=False, reg=1e-7, max_it
             warnings.warn('Thin projection failed, falling back to tilde projection.')
             sig_proj, _ = tilde_project(sig_plus)
 
+        check_timeout()
         # Learning rate update
         if g_sig_prev is not None:
             sign_changed = - g_sig * g_sig_prev  # -1 if sign did not change, +1 if sign changed
@@ -190,7 +211,16 @@ def debias(imxy, bias_):
 
 
 def exact_gauss_thin_pid(cov, dm, dx, dy, verbose=False, ret_t_sigt=False,
-                          plot=False, unbiased=False, sample_size=None):
+                          plot=False, unbiased=False, sample_size=None, *,
+                          objective_target=None, native_stopping=True, timeout=None):
+    """Compute Gaussian Thin-PID with optional minimizer stopping controls.
+
+    ``objective_target`` is the raw union objective in bits, before debiasing
+    or clipping. ``native_stopping=False`` disables stagnation stopping.
+    ``timeout`` limits the minimizer only (seconds), excluding covariance
+    preprocessing and PID postprocessing; expiry raises TimeoutError.
+    See ``exact_thin_pid_minimizer`` for cooperative timeout semantics.
+    """
 
     # XXX: Debiasing has not been thoroughly tested.
     # Right now, we assume that the proportion of bias in the union information
@@ -222,7 +252,10 @@ def exact_gauss_thin_pid(cov, dm, dx, dy, verbose=False, ret_t_sigt=False,
 
     debias_factor = imxy_debiased / imxy
 
-    sig, obj, _, obj_hist = exact_thin_pid_minimizer(hx, hy, plot=plot, ret_obj=True, reg=reg, verbose=verbose)
+    sig, obj, _, obj_hist = exact_thin_pid_minimizer(
+        hx, hy, plot=plot, ret_obj=True, reg=reg, verbose=verbose,
+        objective_target=objective_target, native_stopping=native_stopping,
+        timeout=timeout)
 
     union_info = objective(sig, hx, hy, dm, dx, dy, reg=reg)
     union_info *= debias_factor
