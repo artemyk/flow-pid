@@ -57,7 +57,16 @@ def thin_project(sig_temp):  # project the matrix onto the PSD cone, but only ne
     return sig_proj, True
 
 
-def exact_thin_pid_minimizer(hx, hy, plot=False, ret_obj=False, reg=1e-7, max_iters=20000, verbose=False):
+def exact_thin_pid_minimizer(hx, hy, plot=False, ret_obj=False, reg=1e-7, max_iters=20000, verbose=False,
+                             objective_target=None, native_stopping=True):
+    """Thin-PID RProp minimizer.
+
+    Added (fork): ``objective_target`` stops as soon as the objective (bits) is
+    <= this value, e.g. a certified upper bound from another solver. With
+    ``native_stopping=False`` the original stagnation rule is disabled, so the
+    run ends only at ``objective_target`` or ``max_iters``. Defaults reproduce
+    upstream behavior exactly.
+    """
     dx, dm = hx.shape
     dy, dm_ = hy.shape
     if dm != dm_:
@@ -102,9 +111,13 @@ def exact_thin_pid_minimizer(hx, hy, plot=False, ret_obj=False, reg=1e-7, max_it
         if minima is None or obj < min(running_obj):
             minima = (sig.copy(), obj)
 
+        if objective_target is not None and obj <= objective_target:
+            break
+
         if len(running_obj) >= patience:
             if extra == 0:
-                if (np.abs(np.array(running_obj[-patience:]) - obj) < stop_threshold).all() or i >= max_iterations:
+                stagnated = native_stopping and (np.abs(np.array(running_obj[-patience:]) - obj) < stop_threshold).all()
+                if stagnated or i >= max_iterations:
                     if i >= max_iterations:
 
                         warnings.warn('Exceeded maximum number of iterations. May not have converged.')
